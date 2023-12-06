@@ -16,12 +16,12 @@ def prep_env():
     Desc:
         Prepare the experimental settings
     Returns:
-        The initialized arguments
+        The initialized arguments  data\KDD CUP 2022\wtbdata_245days.csv
     """
     parser = argparse.ArgumentParser(description='Long Term Wind Power Forecasting')
     ###
-    parser.add_argument('--data_path', type=str, default='./data/', help='Path to the data file')
-    parser.add_argument('--filename', type=str, default='sdwpf_baidukddcup2022_full.csv',
+    parser.add_argument('--data_path', type=str, default='./data/KDD CUP 2022/', help='Path to the data file')
+    parser.add_argument('--filename', type=str, default='wtbdata_245days.csv',
                         help='Filename of the input data, change it if necessary')
     parser.add_argument('--task', type=str, default='MS', help='The type of forecasting task, '
                                                                'options:[M, S, MS]; '
@@ -42,7 +42,7 @@ def prep_env():
     parser.add_argument('--total_size', type=int, default=184, help='Number of days for the whole dataset')
     parser.add_argument('--lstm_layer', type=int, default=2, help='Number of LSTM layers')
     parser.add_argument('--dropout', type=float, default=0.05, help='Dropout')
-    parser.add_argument('--num_workers', type=int, default=5, help='#workers for data loader')
+    parser.add_argument('--num_workers', type=int, default=0, help='#workers for data loader')
     parser.add_argument('--train_epochs', type=int, default=10, help='Train epochs')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for the input training data')
     parser.add_argument('--patience', type=int, default=3, help='Early stopping patience')

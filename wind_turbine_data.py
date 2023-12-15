@@ -1,60 +1,68 @@
 import pandas as pd
 import torch
+import numpy as np
 from torch.utils.data import Dataset
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-class WindPowerDataset(Dataset):
-    def __init__(self, csv_path_wtbdata, csv_path_location, history_days=14, forecast_days=2):
-        self.history_days = history_days
-        self.forecast_days = forecast_days
+"""
+Plan:
+1. 先整个给LSTM等时序模型训练用的数据集class；
+2. 先跑几个baseline
+3. GNN，启动！
 
-        # 读取风机数据
-        self.wind_data = pd.read_csv(csv_path_wtbdata)
-        # 读取风机地理位置数据
-        self.location_data = pd.read_csv(csv_path_location)
+"""
 
-        # 合并数据集
-        self.merged_data = pd.merge(self.wind_data, self.location_data, on='TurbID')
+class WindDatasetDL(Dataset):
+    def __init__(self, path_train, 
+                 path_location, 
+                 path_test, 
+                 label_y,
+                 window_len,
+                 scaler='minmax',
+                 ):
+        super().__init__()
+        self.path_train    = path_train
+        self.path_location = path_location
+        self.path_test     = path_test
+        self.label_y       = label_y
+        self.window_len    = window_len
+        if scaler.lower() == 'minmax':
+            self.scaler_x = MinMaxScaler()
+            self.scaler_y = MinMaxScaler()
+        elif scaler.lower() == 'standard':
+            self.scaler_x = StandardScaler()
+            self.scaler_y = StandardScaler()
+        else:
+            raise ValueError('scaler must be one of minmax or standard.')
 
-    def __len__(self):
-        return len(self.merged_data)
+        self.__read_data__()
 
-    def __getitem__(self, idx):
-        turb_id = self.merged_data['TurbID'].iloc[idx]
+    def __read_data__(self):
+        # 读取数据并转换为时间序列格式
+        df_train    = pd.read_csv(self.path_train)
+        df_location = pd.read_csv(self.path_location)
+        df_test     = pd.read_csv(self.path_test)
+        df_train    = pd.merge(df_train, df_location, on='TurbID', how='left')
+        df_train.replace(np.nan, value=0, inplace=True)
+        X_train = df_train.drop(columns=[self.label_y])
+        Y_train = df_train[self.label_y]
+        
+        if self.scaler:
+            X_train = self.scaler_x.fit_transform(X_train)
+            Y_train = self.scaler_y.fit_transform(Y_train)
 
-        # 提取指定风机的历史功率数据
-        history_data = self.merged_data[self.merged_data['TurbID'] == turb_id].tail(self.history_days)
+            
+        # 按 TurbID 分组并对每个 TurbID 进行时间序列划分
+        sequences = []
+        for _, group in df_train.groupby('TurbID'):
+            # 按时间戳排序
+            group = group.sort_values(by='Tmstamp')
 
-        # 提取指定风机的地理位置数据
-        location_data = self.location_data[self.location_data['TurbID'] == turb_id]
+            # 选择适当的历史窗口和预测窗口大小
+            history_window_size = 10
+            prediction_window_size = 1
 
-        # 提取目标变量（接下来2天的发电功率）
-        forecast_data = self.merged_data[self.merged_data['TurbID'] == turb_id].head(self.forecast_days)
-
-        # 提取历史时间序列数据
-        time_series_data = self.merged_data[self.merged_data['TurbID'] == turb_id]['Patv'].values
-
-        # 将历史时间序列数据划分为输入序列和目标序列
-        input_sequence = time_series_data[:-self.forecast_days]
-        target_sequence = time_series_data[-self.forecast_days:]
-
-        # 在这里，你需要根据你的数据格式提取相应的特征和目标变量
-
-        # 将数据转换为 PyTorch 张量
-        history_data_tensor = torch.tensor(history_data.values, dtype=torch.float32)
-        location_data_tensor = torch.tensor(location_data.values, dtype=torch.float32)
-        input_sequence_tensor = torch.tensor(input_sequence, dtype=torch.float32)
-        target_sequence_tensor = torch.tensor(target_sequence, dtype=torch.float32)
-
-        return {
-            'history_data': history_data_tensor,
-            'location_data': location_data_tensor,
-            'input_sequence': input_sequence_tensor,
-            'target_sequence': target_sequence_tensor
-        }
-
-# 示例用法
-csv_path_wtbdata = 'path/to/wtbdata_245days.csv'
-csv_path_location = 'path/to/sdwpf_baidukddcup2022_turb_location.CSV'
-
-wind_power_dataset = WindPowerDataset(csv_path_wtbdata, csv_path_location)
-data_point = wind_power_dataset[0]  # 获取第一个数据点
+            for i in range(len(group) - history_window_size - prediction_window_size + 1):
+                history = group.iloc[i:i+history_window_size][['Wspd', 'Wdir', 'Etmp', 'Itmp', 'Ndir', 'Pab1', 'Pab2', 'Pab3', 'Prtv', 'x', 'y']].values
+                target = group.iloc[i+history_window_size:i+history_window_size+prediction_window_size]['Patv'].values
+                sequences.append((torch.tensor(history, dtype=torch.float32), torch.tensor(target, dtype=torch.float32)))

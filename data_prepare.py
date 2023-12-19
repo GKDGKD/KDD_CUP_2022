@@ -1,9 +1,10 @@
-import pandas as pd
 import torch
-import os
+from torch.utils.data import Dataset, DataLoader
+import torch.nn as nn
 import numpy as np
-from torch.utils.data import Dataset
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+import pandas as pd
+import os
+from sklearn.preprocessing import StandardScaler
 
 """
 Plan:
@@ -12,13 +13,7 @@ Plan:
 3. GNN，启动！
 
 """
-import torch
-from torch.utils.data import Dataset, DataLoader
-import torch.nn as nn
-import numpy as np
-import pandas as pd
-import os
-from sklearn.preprocessing import StandardScaler
+
 
 class Scaler(object):
     def __init__(self):
@@ -110,8 +105,8 @@ class WindTurbineDataset(Dataset):
         elif self.task == 'MS':
             cols_data = df_raw.columns[self.start_col:]
             df_data = df_raw[cols_data]
-        elif self.task == 'S':
-            df_data = df_raw[[self.tid, self.target]]
+        elif self.task == 'S': 
+            df_data = df_raw[[self.target]]
 
         # Turn off the SettingWithCopyWarning
         pd.set_option('mode.chained_assignment', None)
@@ -145,7 +140,8 @@ class WindTurbineDataset(Dataset):
         r_begin = s_end
         r_end = r_begin + self.output_len
         seq_x = self.data_x[s_begin:s_end]
-        seq_y = self.data_y[r_begin:r_end]
+        self.target_col = self.raw_data.columns.get_loc(self.target)
+        seq_y = self.data_y[r_begin:r_end, self.target_col]
         return seq_x, seq_y
 
     def __len__(self):
@@ -156,4 +152,14 @@ class WindTurbineDataset(Dataset):
         return int((len(self.data_x) - self.input_len) / self.output_len)
 
     def inverse_transform(self, data):
-        return self.scaler.inverse_transform(data)
+        if data.ndim > 1:
+            return self.scaler.inverse_transform(data)
+        else:
+            # 逆标准化y
+            num_features = self.raw_data.shape[1]
+            tmp = torch.ones(len(data), num_features - 1)
+            tmp = torch.cat([tmp, data.reshape(-1, 1)], dim=1)
+            # Note: 默认最后一列为目标变量
+            y_inverse = self.scaler.inverse_transform(tmp)[:, -1] 
+    
+            return y_inverse

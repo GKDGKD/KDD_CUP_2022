@@ -5,8 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 
-
-def train_and_val(data_train, data_val, model, optimizer,  criterion, config, scheduler=None, logger=None):
+def train_and_val(data_train, data_val, model, criterion, config, logger=None):
     loader_train = DataLoader(
         dataset=data_train, batch_size=config['batch_size'], shuffle=config['shuffle_train_val']
     )
@@ -14,22 +13,28 @@ def train_and_val(data_train, data_val, model, optimizer,  criterion, config, sc
         dataset=data_val, batch_size=config['batch_size'], shuffle=config['shuffle_test']
     )
 
-    model.to(config['device'])
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f'device: ', device)
     best_validation_loss = float('inf')
     patience_counter     = 0
     patience             = config['patience']
     train_loss_history   = []
     val_loss_history     = []
     
+    model = model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config['lr_rate']) # 这两个不能放外面
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config['lr_step_size'], gamma=config['lr_gamma'])
     for epoch in range(config['max_epoch']):
         train_loss = []
         epoch_start_time = time.time()
         model.train()
         for i, (x, y) in enumerate(loader_train):
             optimizer.zero_grad()
-            x.to(config['device'])
-            y.to(config['device'])
-            out = model(x)
+            breakpoint()
+            x    = x.to(device)
+            y    = y.to(device)
+            out  = model(x).to(device)
+            
             loss = criterion(out, y)
             loss.backward()
             optimizer.step()
@@ -44,8 +49,8 @@ def train_and_val(data_train, data_val, model, optimizer,  criterion, config, sc
         with torch.no_grad():
             val_loss = []
             for x, y in loader_val:
-                x.to(config['device'])
-                y.to(config['device'])
+                x = x.to(device)
+                y = y.to(device)
                 out = model(x)
                 loss = criterion(out, y)
                 val_loss.append(loss.item())

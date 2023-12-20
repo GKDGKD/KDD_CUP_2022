@@ -112,6 +112,7 @@ class WindTurbineDataset(Dataset):
         pd.set_option('mode.chained_assignment', None)
         # df_data.replace(to_replace=np.nan, value=0, inplace=True)
         df_data.fillna(method='bfill', inplace=True)
+        df_data['Patv'] = df_data[self.target].apply(lambda x: max(0, x))
 
         if self.scale:
             train_data = df_data[border1s[0]:border2s[0]]

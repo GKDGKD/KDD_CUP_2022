@@ -29,6 +29,7 @@ def main():
     with open('./config.json', 'r') as f:
         config = json.load(f)
 
+    # train
     model_rnn = RNN(input_size=config['input_size'], 
                     hidden_size=config['hidden_size'], 
                     output_size=config['output_len'],

@@ -18,12 +18,12 @@
     "input_len"        : 288,
     "num_layers"       : 1,
     "device"           : "cuda",
-    "batch_size"       : 32,
+    "batch_size"       : 512,
     "lr_rate"          : 0.01,
-    "max_epoch"        : 2,
-    "patience"         : 5,
+    "max_epoch"        : 100,
+    "patience"         : 10,
     "shuffle_train_val": true,
     "shuffle_test"     : false,
-    "lr_step_size"     : 30,
+    "lr_step_size"     : 10,
     "lr_gamma"         : 0.9
 }

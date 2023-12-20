@@ -32,7 +32,7 @@ class RNN(nn.Module):
         )
 
     def forward(self, x):
-        x.to(self.device)
+        x = x.to(self.device)
         self.model.to(self.device)
         
         # x: (batch_size, sequence_length, input_size)
@@ -40,4 +40,4 @@ class RNN(nn.Module):
         # out: (batch_size, sequence_length, hidden_size)
         out = self.model[1](out[:, -1, :])
         # out: (batch_size, output_size)
-        return out
+        return out.to(self.device)

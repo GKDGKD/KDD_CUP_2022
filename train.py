@@ -3,9 +3,11 @@ import os, time
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import torch.nn as nn
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from data_prepare import WindTurbineDataset
+from models import RNN
 
 def train_and_val(turbine_id, model, criterion, config, model_save_dir, logger=None):
     data_train = WindTurbineDataset(
@@ -138,14 +140,34 @@ def plot_loss(train_loss_history, val_loss_history, model_save_dir, turbine_id):
     plt.savefig(os.path.join(model_save_dir, f'loss_{turbine_id}.png'))
 
 
-def traverse_wind_farm(model, criterion, config, model_save_dir, logger=None):
-
+def traverse_wind_farm(config, model_save_dir, logger=None):
+    # 一个模型训多次
+    model_map = {
+        'rnn': RNN(input_size=config['input_size'], 
+                    hidden_size=config['hidden_size'], 
+                    output_size=config['output_len'],
+                    num_layers=config['num_layers']),
+        # TODO: add LSTM and GRU
+        # 'lstm': LSTM(input_size=config['input_size'],
+        #             hidden_size=config['hidden_size'],
+        #             output_size=config['output_len'],
+        #             num_layers=config['num_layers']),
+        # 'gru': GRU(input_size=config['input_size'],
+        #             hidden_size=config['hidden_size'],
+        #             output_size=config['output_len'],
+        #             num_layers=config['num_layers'])
+    }
     for i in range(config['capacity']):
-        logger.info('-' * 30 + f' Training Turbine {i} ' + '-' * 30)
-        save_dir = os.path.join(model_save_dir, f'Turbine_{i}')
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        train_and_val(i, model, criterion, config, save_dir, logger)
-        
+        if config['model_name'].lower() in model_map:
+            model = model_map[config['model_name'].lower()]
+            criterion = nn.MSELoss(reduction='mean')
+            logger.info('-' * 30 + f' Training Turbine {i} ' + '-' * 30)
+            save_dir = os.path.join(model_save_dir, f'Turbine_{i}')
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            train_and_val(i, model, criterion, config, save_dir, logger)
 
+        else:
+            logger.error(f'The model {config["model_name"]} is not implemented.')
+            break
         

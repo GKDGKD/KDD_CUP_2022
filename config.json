@@ -12,6 +12,7 @@
     "val_days"         : 20,
     "test_days"        : 25,
     "total_days"       : 245,
+    "model_name"       : "RNN",
     "input_size"       : 10,
     "hidden_size"      : 32,
     "output_len"       : 288,

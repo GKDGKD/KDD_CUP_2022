@@ -30,12 +30,7 @@ def main():
         config = json.load(f)
 
     # train
-    model_rnn = RNN(input_size=config['input_size'], 
-                    hidden_size=config['hidden_size'], 
-                    output_size=config['output_len'],
-                    num_layers=config['num_layers'])
-    criterion = nn.MSELoss(reduction='mean')
-    traverse_wind_farm(model_rnn, criterion, config, save_dir_model, logger)
+    traverse_wind_farm(config, save_dir_model, logger)
 
 if __name__ == "__main__":
     main()

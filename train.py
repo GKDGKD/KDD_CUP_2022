@@ -7,7 +7,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from data_prepare import WindTurbineDataset
-from models import RNN
+from models import RNN, LSTM, GRU
 
 def train_and_val(turbine_id, model, criterion, config, model_save_dir, logger=None):
     data_train = WindTurbineDataset(
@@ -147,15 +147,14 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
                     hidden_size=config['hidden_size'], 
                     output_size=config['output_len'],
                     num_layers=config['num_layers']),
-        # TODO: add LSTM and GRU
-        # 'lstm': LSTM(input_size=config['input_size'],
-        #             hidden_size=config['hidden_size'],
-        #             output_size=config['output_len'],
-        #             num_layers=config['num_layers']),
-        # 'gru': GRU(input_size=config['input_size'],
-        #             hidden_size=config['hidden_size'],
-        #             output_size=config['output_len'],
-        #             num_layers=config['num_layers'])
+        'lstm': LSTM(input_size=config['input_size'],
+                    hidden_size=config['hidden_size'],
+                    output_size=config['output_len'],
+                    num_layers=config['num_layers']),
+        'gru': GRU(input_size=config['input_size'],
+                    hidden_size=config['hidden_size'],
+                    output_size=config['output_len'],
+                    num_layers=config['num_layers'])
     }
     for i in range(config['capacity']):
         if config['model_name'].lower() in model_map:

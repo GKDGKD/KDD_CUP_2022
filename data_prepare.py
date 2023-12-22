@@ -6,27 +6,27 @@ import pandas as pd
 import os
 from sklearn.preprocessing import StandardScaler
 
-"""
-Plan:
-1. 先整个给LSTM等时序模型训练用的数据集class；
-2. 先跑几个baseline
-3. GNN，启动！
-
-"""
-
 
 class Scaler(object):
     def __init__(self):
-        self.scaler = StandardScaler()
+        self.mean = 0.
+        self.std = 1.
 
     def fit(self, data):
-        self.scaler.fit(data)
+        self.mean = np.mean(data)
+        self.std = np.std(data)
 
-    def transform(self, data):
-        return torch.tensor(self.scaler.transform(data), dtype=torch.float32)
+    def transform(self, data, to_tensor=True):
+        if to_tensor:
+            return torch.tensor((data - self.mean) / self.std, dtype=torch.float32)
+        else:
+            return (data - self.mean) / self.std
 
-    def inverse_transform(self, data):
-        return torch.tensor(self.scaler.inverse_transform(data), dtype=torch.float32)
+    def inverse_transform(self, data, to_tensor=False):
+        if to_tensor:
+            return torch.tensor(data * self.std + self.mean, dtype=torch.float32)
+        else:
+            return data * self.std + self.mean
 
 class WindTurbineDataset(Dataset):
     """

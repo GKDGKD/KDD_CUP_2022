@@ -63,6 +63,7 @@ def plot_predictions(preds, gts, savedir=None):
     plt.ylabel('Power')
     if savedir:
         plt.savefig(os.path.join(savedir, f'predictions.png'), dpi=200)
+    plt.close()
 
 def is_empty_folder(path):
     return len(os.listdir(path)) == 0
@@ -78,14 +79,21 @@ def traverse_wind_farm(config, result_dir, logger):
             break
         logger.info(f'Evaluate Turbine {i}...')
         preds, gts = forecast_one(i, config, model_dir, device)
-        result = regression_metric(preds, gts)
+        plot_predictions(preds[0], gts[0], model_dir)
+        result = regression_metric(preds / 1000, gts / 1000)
         result_all.append(result)
         logger.info(', '.join([f'{k}: {v}' for k, v in result.items()]))
         result_df = pd.DataFrame(result, index=[f'Turbine_{i}'])
         result_df.to_csv(os.path.join(model_dir, f'Turbine_{i}_regression_metrics.csv'), index=False)
 
-    result_all_df = pd.DataFrame(result_all, index=[f'Turbine_{i}' for i in range(config['capacity'])])
-    result_all_df.to_csv(os.path.join(result_dir, 'Regression_metrics_all_turbines.csv'), index=False)
+    result_all_df = pd.DataFrame(result_all, 
+                                 columns=result.keys(),
+                                 index=[f'Turbine_{i}' for i in range(config['capacity'])])
+    overall_metrics = {col: result_all_df[col].sum() for col in result_all_df.columns}
+    overall_df      = pd.DataFrame(overall_metrics, index=['Total'])
+    result_all_df   = pd.concat([result_all_df, overall_df], axis=0)
+    result_all_df.to_csv(os.path.join(result_dir, 'Regression_metrics_all_turbines.csv'), index=True)
+    logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
     logger.info('Evaluate finished!')
 
     
@@ -93,10 +101,12 @@ if __name__ == "__main__":
     with open('config.json', 'r') as f:
         config = json.load(f)
 
+    model_name = config['model_name']
+
     # Logger
     start_time   = time.time()
     current_time = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime(start_time))
-    save_dir     = os.path.join("result", current_time + '_evaluate')
+    save_dir     = os.path.join("result", current_time + f'_evaluate_{model_name}')
     log_id       = 'evaluate'
     log_name     = f'Run_{current_time}.log'
     log_level    = 'info'
@@ -104,6 +114,6 @@ if __name__ == "__main__":
     logger       = Logger_.logger
     logger.info(f"LOCAL TIME: {current_time}")
 
-    result_dir = './result/2023_12_20_16_00_04'
+    result_dir = './result/2023_12_22_23_50_58_GRU'
     logger.info(f'Result directory: {result_dir}')
     traverse_wind_farm(config, result_dir, logger)

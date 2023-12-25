@@ -1,6 +1,8 @@
 {
     "data_path"        : "./data/train/",
     "filename"         : "wtbdata_245days.csv",
+    "location_path"    : "./data/sdwpf_baidukddcup2022_turb_location.CSV",
+    "thresh_distance"  : 1000,
     "flag"             : "train",
     "task"             : "MS",
     "target"           : "Patv",
@@ -12,7 +14,7 @@
     "val_days"         : 20,
     "test_days"        : 25,
     "total_days"       : 245,
-    "model_name"       : "LSTM",
+    "model_name"       : "STGCN",
     "input_size"       : 10,
     "hidden_size"      : 32,
     "output_len"       : 288,

@@ -48,8 +48,8 @@ def main():
         evaluate(config, save_dir, logger)
 
     cost_time = time.time() - start_time
-    logger.info(f'Running time: {round(cost_time / 3600, 2)} hours, {round(cost_time / 60, 2)} minutes, 
-                {round(cost_time, 2)} seconds')
+    logger.info(f'Running time: {round(cost_time / 3600, 2)} hours, {round(cost_time / 60, 2)} minutes, '
+                f'{round(cost_time, 2)} seconds.')
 
 if __name__ == "__main__":
     main()

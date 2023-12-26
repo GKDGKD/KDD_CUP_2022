@@ -154,13 +154,13 @@ def evaluate_stgcn(config, model_dir, logger):
     logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
 
     # Save predictions and ground truths， 太大了，一个csv文件1GB，先不保存
-    # logger.info(f'Saving predictions and ground truths in {model_dir}...')
-    # preds   = preds.reshape(preds.shape[1] * preds.shape[0], preds.shape[2]) # [num_nodes * N, output_timestep]
-    # gts     = gts.reshape(gts.shape[1] * gts.shape[0], gts.shape[2])    # [num_nodes * N, output_timestep]
-    # pred_df = pd.DataFrame(preds, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
-    # gt_df   = pd.DataFrame(gts, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
-    # pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
-    # gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
+    logger.info(f'Saving predictions and ground truths in {model_dir}...')
+    preds   = preds.reshape(preds.shape[1] * preds.shape[0], preds.shape[2]) # [num_nodes * N, output_timestep]
+    gts     = gts.reshape(gts.shape[1] * gts.shape[0], gts.shape[2])    # [num_nodes * N, output_timestep]
+    pred_df = pd.DataFrame(preds, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
+    gt_df   = pd.DataFrame(gts, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
+    pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
+    gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
     logger.info('Evaluate finished!')
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from data_prepare import WindTurbineDataset
 from metrics import regression_metric
 from log.logutli import Logger
+from utils import get_gnn_data, generate_dataset
 
 def forecast_one(turbine_id, config, model_dir, device):
     data_test = WindTurbineDataset(
@@ -79,6 +80,7 @@ def traverse_wind_farm(config, result_dir, logger):
             break
         logger.info(f'Evaluate Turbine {i}...')
         preds, gts = forecast_one(i, config, model_dir, device)
+        # TODO: save predictions and ground truths for each turbine
         plot_predictions(preds[0], gts[0], model_dir)
         result = regression_metric(preds / 1000, gts / 1000)
         result_all.append(result)
@@ -95,6 +97,50 @@ def traverse_wind_farm(config, result_dir, logger):
     result_all_df.to_csv(os.path.join(result_dir, 'Regression_metrics_all_turbines.csv'), index=True)
     logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
     logger.info('Evaluate finished!')
+
+def evaluate_stgcn(config, model_dir, logger):
+    # 评估STGCN模型
+
+    _, _, test_original_data, A_wave, means, stds = get_gnn_data(config, logger)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger.info(f'Device: {device}')
+
+    model = torch.load(model_dir, map_location=device)
+    model.to(device)
+    A_wave = A_wave.to(device)
+    model.eval()
+
+    test_indices = [(i, i + (config['input_len'] + config['output_len'])) 
+           for i in range(test_original_data.shape[2] - \
+                          (config['input_len'] + config['output_len']) + 1)]
+    preds, gts = [], []
+    with torch.no_grad():
+        for i in range(0, len(test_indices), config['batch_size']):
+            x, y = generate_dataset(test_original_data, 
+                                    test_indices[i:i + config['batch_size']],
+                                    config['input_len'], 
+                                    config['output_len'])
+            x = x.to(device)
+            out = model(A_wave, x)
+            logger.info(f'x.shape: {x.shape}, out.shape: {out.shape}')
+            preds.append(out.cpu().numpy())
+            gts.append(y.cpu().numpy())
+
+    breakpoint()
+    preds = np.concatenate(preds, axis=0)  # (N, L)
+    gts = np.concatenate(gts, axis=0)
+
+    # 逆标准化
+    preds =  preds * stds.reshape(1, -1, 1) + means.reshape(1, -1, 1)
+    gts =  gts * stds.reshape(1, -1, 1) + means.reshape(1, -1, 1)
+
+    plot_predictions(preds[0], gts[0], model_dir)
+    result = regression_metric(preds / 1000, gts / 1000)
+
+    # TODO：save metrics and predictions, ground truths
+
+    return preds, gts
 
     
 if __name__ == "__main__":

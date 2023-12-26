@@ -159,7 +159,7 @@ def train_stgcn(model, criterion, config, model_save_dir, logger=None):
                           (config['input_len'] + config['output_len']) + 1)]
     
     model.to(device)
-    A_wave.to(device)
+    A_wave = A_wave.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['lr_rate']) # 这两个不能放外面
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 
                                                 step_size=config['lr_step_size'], 

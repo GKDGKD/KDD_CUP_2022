@@ -29,4 +29,5 @@
     "shuffle_test"     : false,
     "lr_step_size"     : 5,
     "lr_gamma"         : 0.9
+
 }

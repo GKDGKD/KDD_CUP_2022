@@ -8,7 +8,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from data_prepare import WindTurbineDataset
 from models import RNN, LSTM, GRU, STGCN
-from utils import get_gnn_data
+from utils import get_gnn_data, generate_dataset
 
 def get_train_and_val_data(config, turbine_id=0):
     data_train = WindTurbineDataset(
@@ -140,21 +140,23 @@ def train_and_val(turbine_id, model, criterion, config, model_save_dir, logger=N
 def train_stgcn(model, criterion, config, model_save_dir, logger=None):
     # 训练STGCN模型
 
-    loader_train, loader_val, loader_test, A_wave = get_gnn_data(config, logger)
+    train_original_data, val_original_data, _, \
+        A_wave, means, stds = get_gnn_data(config, logger)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if logger:
-        logger.info(f'Device: {device}, len(data_train): {len(loader_train)}, \
-                    len(data_val): {len(loader_val)}')
-    else:
-        print(f'Device: {device}, len(data_train): {len(loader_train)}, \
-              len(data_val): {len(loader_val)}')
+    logger.info(f'Device: {device}')
         
     best_validation_loss = float('inf')
     patience_counter     = 0
     patience             = config['patience']
     train_loss_history   = []
     val_loss_history     = []
+    train_indices = [(i, i + (config['input_len'] + config['output_len'])) 
+           for i in range(train_original_data.shape[2] - \
+                          (config['input_len'] + config['output_len']) + 1)]
+    val_indices = [(i, i + (config['input_len'] + config['output_len'])) 
+           for i in range(val_original_data.shape[2] - \
+                          (config['input_len'] + config['output_len']) + 1)]
     
     model.to(device)
     A_wave.to(device)
@@ -167,7 +169,11 @@ def train_stgcn(model, criterion, config, model_save_dir, logger=None):
         train_loss = []
         epoch_start_time = time.time()
         model.train()
-        for x, y in loader_train:
+        for i in range(0, len(train_indices), config['batch_size']):
+            x, y = generate_dataset(train_original_data, 
+                                    train_indices[i:i + config['batch_size']],
+                                    config['input_len'], 
+                                    config['output_len'])
             x, y = x.to(device), y.to(device)
             # print(f'x.device: {x.device}, y.device: {y.device}, model.device: {model.device}')
             optimizer.zero_grad()
@@ -178,6 +184,9 @@ def train_stgcn(model, criterion, config, model_save_dir, logger=None):
             loss.backward()
             optimizer.step()
             train_loss.append(loss.item())
+            logger.info(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
+                    f'Batch: {i}/{int(len(train_indices))}, '
+                    f'Train Loss: {loss.item():.4f}')
 
         train_loss_epoch = np.mean(train_loss)
         train_loss_history.append(train_loss_epoch)
@@ -187,7 +196,11 @@ def train_stgcn(model, criterion, config, model_save_dir, logger=None):
         model.eval()
         with torch.no_grad():
             val_loss = []
-            for x, y in loader_val:
+            for i in range(0, len(val_indices), config['batch_size']):
+                x, y = generate_dataset(val_original_data, 
+                                        val_indices[i:i + config['batch_size']],
+                                        config['input_len'], 
+                                        config['output_len'])
                 x    = x.to(device)
                 y    = y.to(device)
                 out  = model(A_wave, x).to(device)

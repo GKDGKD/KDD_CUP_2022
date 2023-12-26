@@ -6,6 +6,7 @@ from sklearn.metrics.pairwise import euclidean_distances
 from torch.utils.data import DataLoader
 
 def get_adjency_matrix(data_path, threshold=1000):
+    # 获取邻接矩阵
     # 读取数据集
     df = pd.read_csv(data_path)
 
@@ -57,11 +58,17 @@ def group_data(data, col_start, group_column='TurbID'):
 
     return np.array(res)
 
-def generate_dataset(X, input_time_steps=12, output_time_steps=3, target_col=-1, to_tensor=True):
-    # 得到窗口数据
+def generate_dataset(X, 
+                     indices, 
+                     input_time_steps=12, 
+                     output_time_steps=3, 
+                     target_col=-1, 
+                     to_tensor=True):
+    
+    # 得到窗口数据，注意两个time_step过百很容易爆内存
     # [(i, j)]: i: window start point, j: window end point
-    indices = [(i, i + (input_time_steps + output_time_steps)) 
-           for i in range(X.shape[2] - (input_time_steps + output_time_steps) + 1)] 
+    # indices = [(i, i + (input_time_steps + output_time_steps)) 
+    #        for i in range(X.shape[2] - (input_time_steps + output_time_steps) + 1)] 
     
     features, target = [], []
     for i, j in indices:
@@ -72,7 +79,7 @@ def generate_dataset(X, input_time_steps=12, output_time_steps=3, target_col=-1,
         return (torch.from_numpy(np.array(features)).to(torch.float32), 
                 torch.from_numpy(np.array(target)).to(torch.float32))
     else:
-        return np.array(features, target)
+        return np.array(features), np.array(target)
 
 
 def get_gnn_data(config, logger):
@@ -80,11 +87,18 @@ def get_gnn_data(config, logger):
     data = pd.read_csv(os.path.join(config['data_path'], config['filename']))
     data.fillna(method='bfill', inplace=True)
     logger.info(f'Raw data.shape: {data.shape}')
-    
-    # 分组
+
+    # 按TurbID分组
     data = group_data(data, config['start_col']) # [num_nodes, seq_len, num_features]
     data = data.transpose((0, 2, 1)) # [num_nodes, num_features, seq_len]
     
+    # 标准化
+    means = np.mean(data, axis=(0, 2))  # [num_features, ], 每个feature的均值
+    stds = np.std(data, axis=(0, 2))  # [num_features, ], 每个feature的标准差
+    data = (data - means.reshape(1, -1, 1)) / stds.reshape(1, -1, 1)
+    logger.info(f'data.shape: {data.shape}, means.shape: {means.shape}, stds.shape: {stds.shape}')
+
+
     # 划分训练集和验证集
     train_size = config['day_len'] * config['train_days']
     val_size   = config['day_len'] * config['val_days']
@@ -97,28 +111,33 @@ def get_gnn_data(config, logger):
       f'val_original_data: {val_original_data.shape}, \n'
       f'test_original_data: {test_original_data.shape}.')
 
-    X_train, Y_train = generate_dataset(train_original_data, 
-                                        config['input_len'], 
-                                        config['output_len'],
-                                        config['start_col']
-                                        )
-    X_val, Y_val = generate_dataset(train_original_data, 
-                                        config['input_len'], 
-                                        config['output_len'],
-                                        config['start_col']
-                                        )
-    X_test, Y_test = generate_dataset(train_original_data, 
-                                        config['input_len'], 
-                                        config['output_len'],
-                                        config['start_col']
-                                        )
+    # X_train, Y_train = generate_dataset(train_original_data, 
+    #                                     config['input_len'], 
+    #                                     config['output_len'],
+    #                                     config['start_col']
+    #                                     )
+    # X_val, Y_val = generate_dataset(train_original_data, 
+    #                                     config['input_len'], 
+    #                                     config['output_len'],
+    #                                     config['start_col']
+    #                                     )
+    # X_test, Y_test = generate_dataset(train_original_data, 
+    #                                     config['input_len'], 
+    #                                     config['output_len'],
+    #                                     config['start_col']
+    #                                     )
     
-    loader_train = DataLoader(list(zip(X_train, Y_train)), batch_size=config['batch_size'], shuffle=config['shuffle_train_val'])
-    loader_val = DataLoader(list(zip(X_val, Y_val)), batch_size=config['batch_size'], shuffle=config['shuffle_train_val'])
-    loader_test = DataLoader(list(zip(X_test, Y_test)), batch_size=config['batch_size'], shuffle=False)
+    # loader_train = DataLoader(list(zip(X_train, Y_train)), batch_size=config['batch_size'], shuffle=config['shuffle_train_val'])
+    # loader_val = DataLoader(list(zip(X_val, Y_val)), batch_size=config['batch_size'], shuffle=config['shuffle_train_val'])
+    # loader_test = DataLoader(list(zip(X_test, Y_test)), batch_size=config['batch_size'], shuffle=False)
 
     # load adjency matrix
     A      = get_adjency_matrix(config['location_path'], config['thresh_distance'])
     A_wave = torch.from_numpy(get_normalized_adj(A)).to(torch.float32)
 
-    return loader_train, loader_val, loader_test, A_wave
+    return (train_original_data, 
+            val_original_data, 
+            test_original_data,
+            A_wave,
+            means,
+            stds)

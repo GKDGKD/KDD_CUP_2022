@@ -6,6 +6,7 @@ from log.logutli import Logger
 from models import RNN
 from data_prepare import WindTurbineDataset
 from train import traverse_wind_farm
+from evaluate import evaluate, evaluate_stgcn
 
 def main():
 
@@ -36,7 +37,19 @@ def main():
         logger.info(f'{k}: {v}')
 
     # train
+    logger.info('Starts training...')
     traverse_wind_farm(config, save_dir_model, logger)
+
+    # evaluate
+    logger.info('Starts evaluating...')
+    if config['model_name'].lower() == 'stgcn':
+        evaluate_stgcn(config, save_dir, logger)
+    else:
+        evaluate(config, save_dir, logger)
+
+    cost_time = time.time() - start_time
+    logger.info(f'Running time: {round(cost_time / 3600, 2)} hours, {round(cost_time / 60, 2)} minutes, 
+                {round(cost_time, 2)} seconds')
 
 if __name__ == "__main__":
     main()

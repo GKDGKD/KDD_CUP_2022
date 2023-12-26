@@ -10,6 +10,31 @@ from data_prepare import WindTurbineDataset
 from models import RNN, LSTM, GRU, STGCN
 from utils import get_gnn_data, generate_dataset
 
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0, path='best_model.pt'):
+        self.patience   = patience
+        self.delta      = delta
+        self.counter    = 0
+        self.best_score = None
+        self.early_stop = False
+        self.path       = path
+
+    def __call__(self, val_loss, model):
+        if self.best_score is None:
+            self.best_score = val_loss
+            self.save_checkpoint(model)
+        elif val_loss > self.best_score + self.delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = val_loss
+            self.save_checkpoint(model)
+            self.counter = 0
+
+    def save_checkpoint(self, model):
+        torch.save(model, self.path)
+
 def get_train_and_val_data(config, turbine_id=0):
     data_train = WindTurbineDataset(
         data_path  = config['data_path'],
@@ -68,6 +93,9 @@ def train_and_val(turbine_id, model, criterion, config, model_save_dir, logger=N
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 
                                                 step_size=config['lr_step_size'], 
                                                 gamma=config['lr_gamma'])
+    early_stopping = EarlyStopping(config['patience'], 
+                               delta=config['delta'], 
+                               path=os.path.join(model_save_dir, f'model_{turbine_id}.pt'))
     
     for epoch in range(config['max_epoch']):
         train_loss = []
@@ -104,36 +132,19 @@ def train_and_val(turbine_id, model, criterion, config, model_save_dir, logger=N
         epoch_end_time = time.time()
         cost_time = epoch_end_time - epoch_start_time
 
-        # 早停
-        if val_loss_epoch < best_validation_loss:
-            best_validation_loss = val_loss_epoch
-            patience_counter = 0
-        else:
-            patience_counter += 1
-
-        if patience_counter >= patience:
-            if logger:
-                logger.info(f'Early stopping after {patience} epochs without improvement.')
-            else:
-                print(f'Early stopping after {patience} epochs without improvement.')
-            break
+        logger.info(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
+                f'Train Loss: {train_loss_epoch:.4f}, '
+                f'Validation Loss: {val_loss_epoch:.4f}, '
+                f'Learning Rate: {scheduler.get_last_lr()[0]:.2e}, '
+                f'Cost time: {cost_time:.2f}s')
         
-        if logger:
-            logger.info(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
-                f'Train Loss: {train_loss_epoch:.4f}, '
-                f'Validation Loss: {val_loss_epoch:.4f}, '
-                f'Learning Rate: {scheduler.get_last_lr()[0]:.2e},'
-                f'Cost time: {cost_time:.2f}s')
-        else:
-            print(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
-                f'Train Loss: {train_loss_epoch:.4f}, '
-                f'Validation Loss: {val_loss_epoch:.4f}, '
-                f'Learning Rate: {scheduler.get_last_lr()[0]:.2e},'
-                f'Cost time: {cost_time:.2f}s')
+        # 早停
+        early_stopping(val_loss_epoch, model)
+        if early_stopping.early_stop:
+            logger.info(f'Early stopping after {patience} epochs without improvement.')
+            break
             
-    if model_save_dir:
-        torch.save(model, os.path.join(model_save_dir, f'model_{turbine_id}.pt'))
-        plot_loss(train_loss_history, val_loss_history, model_save_dir, turbine_id)
+    plot_loss(train_loss_history, val_loss_history, model_save_dir, turbine_id)
             
     return train_loss_history, val_loss_history
 
@@ -164,6 +175,9 @@ def train_stgcn(model, criterion, config, model_save_dir, logger=None):
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 
                                                 step_size=config['lr_step_size'], 
                                                 gamma=config['lr_gamma'])
+    early_stopping = EarlyStopping(config['patience'], 
+                               delta=config['delta'], 
+                               path=os.path.join(model_save_dir, f'model_STGCN.pt'))
     
     for epoch in range(config['max_epoch']):
         train_loss = []
@@ -184,9 +198,10 @@ def train_stgcn(model, criterion, config, model_save_dir, logger=None):
             loss.backward()
             optimizer.step()
             train_loss.append(loss.item())
-            logger.info(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
-                    f'Batch: {i}/{int(len(train_indices))}, '
-                    f'Train Loss: {loss.item():.4f}')
+            if i % 10 == 0:
+                logger.info(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
+                        f'Batch: {i}/{int(len(train_indices))}, '
+                        f'Train Loss: {loss.item():.4f}')
 
         train_loss_epoch = np.mean(train_loss)
         train_loss_history.append(train_loss_epoch)
@@ -209,39 +224,36 @@ def train_stgcn(model, criterion, config, model_save_dir, logger=None):
         val_loss_epoch = np.mean(val_loss)
         val_loss_history.append(val_loss_epoch)
         epoch_end_time = time.time()
-        cost_time = epoch_end_time - epoch_start_time
+        cost_time = epoch_end_time - epoch_start_time # batch_size为64时，1个epoch大概6min+
+        logger.info(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
+                f'Train Loss: {train_loss_epoch:.4f}, '
+                f'Validation Loss: {val_loss_epoch:.4f}, '
+                f'Learning Rate: {scheduler.get_last_lr()[0]:.2e},'
+                f'Cost time: {cost_time:.2f}s')
 
         # 早停
-        if val_loss_epoch < best_validation_loss:
-            best_validation_loss = val_loss_epoch
-            patience_counter = 0
-        else:
-            patience_counter += 1
-
-        if patience_counter >= patience:
-            if logger:
-                logger.info(f'Early stopping after {patience} epochs without improvement.')
-            else:
-                print(f'Early stopping after {patience} epochs without improvement.')
+        early_stopping(val_loss_epoch, model)
+        if early_stopping.early_stop:
+            logger.info(f'Early stopping after {patience} epochs without improvement.')
             break
-        
-        if logger:
-            logger.info(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
-                f'Train Loss: {train_loss_epoch:.4f}, '
-                f'Validation Loss: {val_loss_epoch:.4f}, '
-                f'Learning Rate: {scheduler.get_last_lr()[0]:.2e},'
-                f'Cost time: {cost_time:.2f}s')
-        else:
-            print(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
-                f'Train Loss: {train_loss_epoch:.4f}, '
-                f'Validation Loss: {val_loss_epoch:.4f}, '
-                f'Learning Rate: {scheduler.get_last_lr()[0]:.2e},'
-                f'Cost time: {cost_time:.2f}s')
+
+        # if val_loss_epoch < best_validation_loss:
+        #     best_validation_loss = val_loss_epoch
+        #     patience_counter = 0
+        # else:
+        #     patience_counter += 1
+
+        # if patience_counter >= patience:
+        #     if logger:
+        #         logger.info(f'Early stopping after {patience} epochs without improvement.')
+        #     else:
+        #         print(f'Early stopping after {patience} epochs without improvement.')
+        #     break
             
-    if model_save_dir:
-        model_name = config['model_name']
-        torch.save(model, os.path.join(model_save_dir, f'model_{model_name}.pt'))
-        plot_loss(train_loss_history, val_loss_history, model_save_dir, config['model_name'])
+    # if model_save_dir:
+    #     model_name = config['model_name']
+    #     torch.save(model, os.path.join(model_save_dir, f'model_{model_name}.pt'))
+    plot_loss(train_loss_history, val_loss_history, model_save_dir, config['model_name'])
             
     return train_loss_history, val_loss_history
 
@@ -278,20 +290,27 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
     }
 
     logger.info(f'Use model: {config["model_name"]}')
+    if config['loss_fn'].lower() == 'mse':
+        criterion = nn.MSELoss(reduction='mean')
+    elif config['loss_fn'].lower() == 'huber':
+        criterion = nn.HuberLoss(reduction='mean')
+    elif config['loss_fn'].lower() == 'mae':
+        criterion = nn.L1Loss(reduction='mean')
+    else:
+        raise NotImplementedError
+    logger.info(f'Loss function: {config["loss_fn"]}')
 
     if config['model_name'].lower() == 'stgcn':
         model = model_map[config['model_name'].lower()]
-        criterion = nn.MSELoss(reduction='mean')
         logger.info('-' * 30 + f' Training STGCN ' + '-' * 30)
         save_dir = os.path.join(model_save_dir, 'STGCN')
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
-        train_stgcn(model, criterion, config, model_save_dir, logger)
+        train_stgcn(model, criterion, config, save_dir, logger)
 
     elif any(config['model_name'].lower() in model_map.keys()):
         for i in range(config['capacity']):
             model = model_map[config['model_name'].lower()]
-            criterion = nn.MSELoss(reduction='mean')
             logger.info('-' * 30 + f' Training Turbine {i} ' + '-' * 30)
             save_dir = os.path.join(model_save_dir, f'Turbine_{i}')
             if not os.path.exists(save_dir):

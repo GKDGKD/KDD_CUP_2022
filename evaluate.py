@@ -64,12 +64,14 @@ def plot_predictions(preds, gts, savedir=None):
     plt.ylabel('Power')
     if savedir:
         plt.savefig(os.path.join(savedir, f'predictions.png'), dpi=200)
+    else:
+        plt.show()
     plt.close()
 
 def is_empty_folder(path):
     return len(os.listdir(path)) == 0
 
-def traverse_wind_farm(config, result_dir, logger):
+def evaluate(config, result_dir, logger):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Device: {device}, Begin to evaluate...')
     result_all = []
@@ -79,7 +81,8 @@ def traverse_wind_farm(config, result_dir, logger):
             logger.error(f'No model in {model_dir}, please train first!')
             break
         logger.info(f'Evaluate Turbine {i}...')
-        preds, gts = forecast_one(i, config, model_dir, device)
+        preds, gts = forecast_one(i, config, model_dir, device)  # [N, output_timestep], (3313, 288)
+        breakpoint()
         # TODO: save predictions and ground truths for each turbine
         plot_predictions(preds[0], gts[0], model_dir)
         result = regression_metric(preds / 1000, gts / 1000)
@@ -106,7 +109,7 @@ def evaluate_stgcn(config, model_dir, logger):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Device: {device}')
 
-    model = torch.load(model_dir, map_location=device)
+    model = torch.load(os.path.join(model_dir, 'model', 'STGCN', 'model_STGCN.pt'), map_location=device)
     model.to(device)
     A_wave = A_wave.to(device)
     model.eval()
@@ -114,36 +117,54 @@ def evaluate_stgcn(config, model_dir, logger):
     test_indices = [(i, i + (config['input_len'] + config['output_len'])) 
            for i in range(test_original_data.shape[2] - \
                           (config['input_len'] + config['output_len']) + 1)]
+    
+    logger.info(f'Begin to predict on {len(test_indices)} samples...')
     preds, gts = [], []
     with torch.no_grad():
-        for i in range(0, len(test_indices), config['batch_size']):
+        for i in tqdm(range(0, len(test_indices), config['batch_size'])):
             x, y = generate_dataset(test_original_data, 
                                     test_indices[i:i + config['batch_size']],
                                     config['input_len'], 
                                     config['output_len'])
-            x = x.to(device)
+            x   = x.to(device)
             out = model(A_wave, x)
-            logger.info(f'x.shape: {x.shape}, out.shape: {out.shape}')
-            preds.append(out.cpu().numpy())
-            gts.append(y.cpu().numpy())
+            preds.append(out.cpu().numpy())  # [N, num_nodes, output_timestep], (3025, 134, 288)
+            gts.append(y.cpu().numpy()) # [N, num_nodes, output_timestep]
 
-    breakpoint()
-    preds = np.concatenate(preds, axis=0)  # (N, L)
-    gts = np.concatenate(gts, axis=0)
+    preds = np.concatenate(preds, axis=0)   # [N, num_nodes, output_timestep]
+    gts   = np.concatenate(gts, axis=0)     # [N, num_nodes, output_timestep]
 
-    # 逆标准化
-    preds =  preds * stds.reshape(1, -1, 1) + means.reshape(1, -1, 1)
-    gts =  gts * stds.reshape(1, -1, 1) + means.reshape(1, -1, 1)
+    # 逆标准化, 默认最后一列为目标变量y
+    preds = preds * stds[-1] + means[-1]
+    gts   = gts * stds[-1] + means[-1]
+    plot_predictions(preds[0, 0, :], gts[0, 0, :], model_dir)
 
-    plot_predictions(preds[0], gts[0], model_dir)
-    result = regression_metric(preds / 1000, gts / 1000)
+    logger.info(f'Caculating regression metrics on {len(test_indices)} samples...')
+    result_all = []
+    for i in tqdm(range(preds.shape[1])):
+        result_one = regression_metric(preds[:, i, :] / 1000, gts[:, i, :] / 1000)
+        result_all.append(result_one)
+    result_all_df = pd.DataFrame(result_all, 
+                                 columns=result_one.keys(),
+                                 index=[f'Turbine_{i}' for i in range(config['capacity'])])
+    overall_metrics = {col: result_all_df[col].sum() for col in result_all_df.columns}
+    overall_df      = pd.DataFrame(overall_metrics, index=['Total'])
+    result_all_df   = pd.concat([result_all_df, overall_df], axis=0)
+    result_all_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_turbines.csv'), index=True)
+    logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
 
-    # TODO：save metrics and predictions, ground truths
+    # Save predictions and ground truths， 太大了，一个csv文件1GB，先不保存
+    # logger.info(f'Saving predictions and ground truths in {model_dir}...')
+    # preds   = preds.reshape(preds.shape[1] * preds.shape[0], preds.shape[2]) # [num_nodes * N, output_timestep]
+    # gts     = gts.reshape(gts.shape[1] * gts.shape[0], gts.shape[2])    # [num_nodes * N, output_timestep]
+    # pred_df = pd.DataFrame(preds, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
+    # gt_df   = pd.DataFrame(gts, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
+    # pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
+    # gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
+    logger.info('Evaluate finished!')
 
-    return preds, gts
-
-    
 if __name__ == "__main__":
+
     with open('config.json', 'r') as f:
         config = json.load(f)
 
@@ -160,6 +181,8 @@ if __name__ == "__main__":
     logger       = Logger_.logger
     logger.info(f"LOCAL TIME: {current_time}")
 
-    result_dir = './result/2023_12_22_23_50_58_GRU'
+    result_dir = './result/2023_12_26_17_11_41_STGCN'
+    # result_dir = './result/2023_12_22_23_50_58_GRU'
     logger.info(f'Result directory: {result_dir}')
-    traverse_wind_farm(config, result_dir, logger)
+    # evaluate(config, result_dir, logger)
+    evaluate_stgcn(config, result_dir, logger)

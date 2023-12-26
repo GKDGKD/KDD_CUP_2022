@@ -58,7 +58,7 @@ def group_data(data, col_start, group_column='TurbID'):
 
     return np.array(res)
 
-def generate_dataset(X, 
+def generate_dataset(X, # [num_nodes, num_features, seq_len]
                      indices, 
                      input_time_steps=12, 
                      output_time_steps=3, 
@@ -94,8 +94,8 @@ def get_gnn_data(config, logger):
     
     # 标准化
     means = np.mean(data, axis=(0, 2))  # [num_features, ], 每个feature的均值
-    stds = np.std(data, axis=(0, 2))  # [num_features, ], 每个feature的标准差
-    data = (data - means.reshape(1, -1, 1)) / stds.reshape(1, -1, 1)
+    stds  = np.std(data, axis=(0, 2))  # [num_features, ],  每个feature的标准差
+    data  = (data - means.reshape(1, -1, 1)) / stds.reshape(1, -1, 1)
     logger.info(f'data.shape: {data.shape}, means.shape: {means.shape}, stds.shape: {stds.shape}')
 
 

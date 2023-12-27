@@ -101,6 +101,77 @@ def evaluate(config, result_dir, logger):
     logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
     logger.info('Evaluate finished!')
 
+def evaluate_all(config, model_dir, logger):
+    # 评估所有普通模型
+    _, _, test_original_data, _, means, stds = get_gnn_data(config, logger)
+    test_indices = [(i, i + (config['input_len'] + config['output_len'])) 
+           for i in range(test_original_data.shape[2] - \
+                          (config['input_len'] + config['output_len']) + 1)]
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger.info(f'Device: {device}, model: {config["model_name"]}.')
+
+    result_all, pred_all, gts_all = [], [], []
+    for turbine_id in range(config['capacity']):
+        logger.info(f'Evaluate Turbine {turbine_id+1}...')
+        test_data = test_original_data[turbine_id]
+        if config['train_type'] == 'each':
+            model_path = os.path.join(model_dir, 'model', 
+                                            f'Turbine_{turbine_id}')
+        elif config['train_type'] == 'one':
+            model_path = os.path.join(model_dir, 'model')
+        else:
+            raise ValueError(f'Invalid train_type: {config["train_type"]}')
+        
+        model = torch.load(os.path.join(model_path, f'model_{config["model_name"]}.pt'), map_location=device)
+        model.to(device)
+        model.eval()
+
+        logger.info(f'Turbine: {turbine_id+1}/{config["capacity"]}, Begin to predict on {len(test_indices)} samples...')
+        preds, gts = [], []
+        with torch.no_grad():
+            for i in tqdm(range(0, len(test_indices), config['batch_size'])):
+                x, y = generate_dataset(test_data, 
+                                        test_indices[i:i + config['batch_size']],
+                                        config['input_len'], 
+                                        config['output_len'])
+                # x: [batch_size, input_len, num_features], y: [batch_size, output_len]
+                x   = x.to(device)
+                out = model(x)  # [batch_size, output_len]
+                preds.append(out.cpu().numpy())  # [N, batch_size, output_timestep]
+                gts.append(y.cpu().numpy()) # [N, batch_size, output_timestep]
+
+        preds = np.concatenate(preds, axis=0)  # [N*batch_size, output_timestep]
+        gts = np.concatenate(gts, axis=0)  # [N*batch_size, output_timestep]
+        logger.info(f'preds.shape: {preds.shape}, gts.shape: {gts.shape}')
+
+        # 逆标准化, 默认最后一列为目标变量y
+        preds = preds * stds[-1] + means[-1]
+        gts   = gts * stds[-1] + means[-1]
+        plot_predictions(preds[0], gts[0], model_path)
+        result_one = regression_metric(preds / 1000, gts / 1000)
+        result_all.append(result_one)
+        pred_all.append(preds) # [num_nodes, N, output_timestep]
+        gts_all.append(gts)    # [num_nodes, N, output_timestep]
+
+    result_all_df = pd.DataFrame(result_all, 
+                                columns=result_one.keys(),
+                                index=[f'Turbine_{i}' for i in range(config['capacity'])])
+    overall_metrics = {col: result_all_df[col].sum() for col in result_all_df.columns}
+    overall_df      = pd.DataFrame(overall_metrics, index=['Total'])
+    result_all_df   = pd.concat([result_all_df, overall_df], axis=0)
+    result_all_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_turbines.csv'), index=True)
+    logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
+
+    # Save predictions and ground truths
+    logger.info(f'Saving predictions and ground truths in {model_dir}...')
+    pred_all = np.array(pred_all).reshape(pred_all.shape[0]*pred_all.shape[1], pred_all.shape[2]) # [num_nodes * N, output_timestep]
+    gts_all  = np.array(gts_all).reshape(gts_all.shape[0]*gts_all.shape[1], gts_all.shape[2])      # [num_nodes * N, output_timestep]
+    pred_df  = pd.DataFrame(pred_all, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
+    gt_df    = pd.DataFrame(gts_all, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
+    pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
+    gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
+    logger.info('Evaluate finished!')
+
 def evaluate_stgcn(config, model_dir, logger):
     # 评估STGCN模型
 
@@ -128,8 +199,9 @@ def evaluate_stgcn(config, model_dir, logger):
                                     config['output_len'])
             x   = x.to(device)
             out = model(A_wave, x)
-            preds.append(out.cpu().numpy())  # [N, num_nodes, output_timestep], (3025, 134, 288)
-            gts.append(y.cpu().numpy()) # [N, num_nodes, output_timestep]
+            preds.append(out.cpu().numpy())  # [N, batch_size, num_nodes, output_timestep], (3025, 134, 288)
+            gts.append(y.cpu().numpy()) # [N, batch_size, num_nodes, output_timestep]
+            breakpoint()
 
     preds = np.concatenate(preds, axis=0)   # [N, num_nodes, output_timestep]
     gts   = np.concatenate(gts, axis=0)     # [N, num_nodes, output_timestep]
@@ -181,8 +253,9 @@ if __name__ == "__main__":
     logger       = Logger_.logger
     logger.info(f"LOCAL TIME: {current_time}")
 
-    result_dir = './result/2023_12_26_17_11_41_STGCN'
-    # result_dir = './result/2023_12_22_23_50_58_GRU'
+    # result_dir = './result/2023_12_26_17_11_41_STGCN'
+    result_dir = './result/2023_12_27_16_38_13_rnn'
     logger.info(f'Result directory: {result_dir}')
     # evaluate(config, result_dir, logger)
-    evaluate_stgcn(config, result_dir, logger)
+    # evaluate_stgcn(config, result_dir, logger)
+    evaluate_all(config, result_dir, logger)

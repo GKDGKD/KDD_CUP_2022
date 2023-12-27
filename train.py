@@ -169,7 +169,6 @@ def train(model_map, criterion, config, model_save_dir, logger):
     patience   = config['patience']
     logger.info(f'Device: {device}, model: {model_name}')
         
-    train_loss_history, val_loss_history   = [], []
     # train_original_data:  [num_nodes, num_features, seq_len] (134, 10, 28800),
     train_indices = [(i, i + (config['input_len'] + config['output_len'])) 
            for i in range(train_original_data.shape[2] - \
@@ -180,10 +179,11 @@ def train(model_map, criterion, config, model_save_dir, logger):
     
     if config['train_type'].lower() == 'one':
         # 一个模型遍历所有风机
-        model = model_map[config['model_name'].lower()]
+        model    = model_map[config['model_name'].lower()]
         save_dir = model_save_dir
 
     for turbine_id in range(config['capacity']):
+        train_loss_history, val_loss_history   = [], []
         logger.info('-' * 20 + f' Training Turbine {turbine_id + 1} ' + '-' * 20)
         train_data, val_data = train_original_data[turbine_id], val_original_data[turbine_id]
         if config['train_type'].lower() == 'each':
@@ -217,7 +217,6 @@ def train(model_map, criterion, config, model_save_dir, logger):
                 optimizer.zero_grad()
                 out  = model(x).to(device)
                 # print(f'out.device: {out.device}, y.device:{y.device}')
-                # breakpoint()
                 loss = criterion(out, y)
                 loss.backward()
                 optimizer.step()

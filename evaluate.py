@@ -163,13 +163,13 @@ def evaluate_all(config, model_dir, logger):
     logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
 
     # Save predictions and ground truths
-    logger.info(f'Saving predictions and ground truths in {model_dir}...')
-    pred_all = np.array(pred_all).reshape(pred_all.shape[0]*pred_all.shape[1], pred_all.shape[2]) # [num_nodes * N, output_timestep]
-    gts_all  = np.array(gts_all).reshape(gts_all.shape[0]*gts_all.shape[1], gts_all.shape[2])      # [num_nodes * N, output_timestep]
-    pred_df  = pd.DataFrame(pred_all, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
-    gt_df    = pd.DataFrame(gts_all, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
-    pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
-    gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
+    # logger.info(f'Saving predictions and ground truths in {model_dir}...')
+    # pred_all = np.array(pred_all).reshape(pred_all.shape[0]*pred_all.shape[1], pred_all.shape[2]) # [num_nodes * N, output_timestep]
+    # gts_all  = np.array(gts_all).reshape(gts_all.shape[0]*gts_all.shape[1], gts_all.shape[2])      # [num_nodes * N, output_timestep]
+    # pred_df  = pd.DataFrame(pred_all, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
+    # gt_df    = pd.DataFrame(gts_all, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
+    # pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
+    # gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
     logger.info('Evaluate finished!')
 
 def evaluate_stgcn(config, model_dir, logger):
@@ -253,9 +253,9 @@ if __name__ == "__main__":
     logger       = Logger_.logger
     logger.info(f"LOCAL TIME: {current_time}")
 
-    # result_dir = './result/2023_12_26_17_11_41_STGCN'
-    result_dir = './result/2023_12_27_16_38_13_rnn'
+    result_dir = './result/2023_12_27_17_51_53_LSTM'
+    # result_dir = './result/2023_12_27_16_38_13_rnn'
     logger.info(f'Result directory: {result_dir}')
     # evaluate(config, result_dir, logger)
-    # evaluate_stgcn(config, result_dir, logger)
-    evaluate_all(config, result_dir, logger)
+    evaluate_stgcn(config, result_dir, logger)
+    # evaluate_all(config, result_dir, logger)

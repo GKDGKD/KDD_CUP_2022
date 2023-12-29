@@ -7,7 +7,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from data_prepare import WindTurbineDataset
-from models import RNN, LSTM, GRU, STGCN
+from models import RNN, LSTM, GRU, STGCN, TCN
 from utils import get_gnn_data, generate_dataset
 
 class EarlyStopping:
@@ -84,7 +84,6 @@ def train_and_val(turbine_id, model, criterion, config, model_save_dir, logger=N
     else:
         print(f'Device: {device}, len(data_train): {len(data_train)}, len(data_val): {len(data_val)}')
 
-    patience             = config['patience']
     train_loss_history   = []
     val_loss_history     = []
     
@@ -142,16 +141,16 @@ def train_and_val(turbine_id, model, criterion, config, model_save_dir, logger=N
         # 早停
         early_stopping(val_loss_epoch, model)
         if early_stopping.early_stop:
-            logger.info(f'Early stopping after {patience} epochs without improvement.')
+            logger.info(f'Early stopping after {config["patience"]} epochs without improvement.')
             break
             
     plot_loss(train_loss_history, val_loss_history, model_save_dir, turbine_id)
             
     return train_loss_history, val_loss_history
 
-def train(model_map, criterion, config, model_save_dir, logger):
+def train(model_map, device, criterion, config, model_save_dir, logger):
     """
-    普通深度学习模型的训练函数. 一个风机一个模型
+    普通深度学习模型的训练函数.
     Args:
         model_map: 模型匹配字典, dict, key: 模型名字, value: 模型类
         criterion: 损失函数, nn.Module
@@ -163,11 +162,8 @@ def train(model_map, criterion, config, model_save_dir, logger):
         val_loss_history: 验证集损失
     """
     assert config['train_type'].lower() in ['each', 'one'], f'Invalid train_type: {config["train_type"]}'
+    logger.info('Reading data...')
     train_original_data, val_original_data, _, _, _, _ = get_gnn_data(config, logger)  
-    device     = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model_name = config['model_name']
-    patience   = config['patience']
-    logger.info(f'Device: {device}, model: {model_name}')
         
     # train_original_data:  [num_nodes, num_features, seq_len] (134, 10, 28800),
     train_indices = [(i, i + (config['input_len'] + config['output_len'])) 
@@ -200,7 +196,7 @@ def train(model_map, criterion, config, model_save_dir, logger):
                                                     gamma=config['lr_gamma'])
         early_stopping = EarlyStopping(config['patience'], 
                                 delta=config['delta'], 
-                                path=os.path.join(save_dir, f'model_{model_name}.pt'))
+                                path=os.path.join(save_dir, f'model_{config["model_name"]}.pt'))
 
         for epoch in range(config['max_epoch']):
             train_loss = []
@@ -258,7 +254,7 @@ def train(model_map, criterion, config, model_save_dir, logger):
             # 早停
             early_stopping(val_loss_epoch, model)
             if early_stopping.early_stop:
-                logger.info(f'Early stopping after {patience} epochs without improvement.')
+                logger.info(f'Early stopping after {config["patience"]} epochs without improvement.')
                 break
 
         plot_loss(train_loss_history, val_loss_history, save_dir, config['model_name'])
@@ -266,12 +262,11 @@ def train(model_map, criterion, config, model_save_dir, logger):
     logger.info('Training is Done!')
     
 
-def train_stgcn(model, criterion, config, model_save_dir, logger=None):
+def train_stgcn(model, device, criterion, config, model_save_dir, logger=None):
     # 训练STGCN模型
-    train_original_data, val_original_data, _, \
-        A_wave, means, stds = get_gnn_data(config, logger)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logger.info(f'Device: {device}')
+    logger.info('Reading data ...')
+    train_original_data, val_original_data, _, A_wave, _, _ = get_gnn_data(config, logger)
+    logger.info('Starts training STGCN...')
 
     train_loss_history, val_loss_history    = [], []
     train_indices = [(i, i + (config['input_len'] + config['output_len'])) 
@@ -364,26 +359,34 @@ def plot_loss(train_loss_history, val_loss_history, model_save_dir, turbine_id):
 
 
 def traverse_wind_farm(config, model_save_dir, logger=None):
-    # 一个模型训多次
-    """
-    两种模型训练方式：
-    1. 一个风机一个模型；
-    2. 一个模型遍历所有风机。
-    这里先采用第一种方式。
-    """
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger.info(f'Device: {device}, model: {config["model_name"]}')
     model_map = {
         'rnn': RNN(input_size=config['input_size'], 
                     hidden_size = config['hidden_size'],
                     output_size = config['output_len'],
-                    num_layers  = config['num_layers']),
+                    num_layers  = config['num_layers'],
+                    dropout     = config['dropout'],
+                    device      = device),
         'lstm': LSTM(input_size=config['input_size'],
                     hidden_size = config['hidden_size'],
                     output_size = config['output_len'],
-                    num_layers  = config['num_layers']),
+                    num_layers  = config['num_layers'],
+                    dropout     = config['dropout'],
+                    device      = device),
         'gru': GRU(input_size=config['input_size'],
                     hidden_size = config['hidden_size'],
                     output_size = config['output_len'],
-                    num_layers  = config['num_layers']),
+                    num_layers  = config['num_layers'],
+                    dropout     = config['dropout'],
+                    device      = device),
+        "tcn": TCN(input_size=config['input_size'],
+                    output_size  = config['output_len'],
+                    num_channels = [config['hidden_size']]*config['num_layers'],
+                    kernel_size  = config['kernel_size'],
+                    dropout      = config['dropout'],
+                    device       = device),
         'stgcn': STGCN(num_nodes=config['capacity'],
                         num_features         = 10 if config['start_col'] == 3 else 1,
                         num_timesteps_input  = config['input_len'] ,
@@ -407,7 +410,7 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
         save_dir = os.path.join(model_save_dir, 'STGCN')
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
-        train_stgcn(model, criterion, config, save_dir, logger)
+        train_stgcn(model, device, criterion, config, save_dir, logger)
 
     elif config['model_name'].lower() in model_map.keys():
         # for i in range(config['capacity']):
@@ -417,7 +420,7 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
         #     if not os.path.exists(save_dir):
         #         os.makedirs(save_dir)
         #     train_and_val(i, model, criterion, config, save_dir, logger)
-        train(model_map, criterion, config, model_save_dir, logger)
+        train(model_map, device, criterion, config, model_save_dir, logger)
 
     else:
         logger.error(f'The model {config["model_name"]} is not implemented.')

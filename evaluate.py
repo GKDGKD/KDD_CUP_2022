@@ -137,12 +137,14 @@ def evaluate_all(config, model_dir, logger):
                 # x: [batch_size, input_len, num_features], y: [batch_size, output_len]
                 x   = x.to(device)
                 out = model(x)  # [batch_size, output_len]
+                if out.shape[2] > 1:
+                    out = out[:, :, -1]
                 preds.append(out.cpu().numpy())  # [N, batch_size, output_timestep]
                 gts.append(y.cpu().numpy()) # [N, batch_size, output_timestep]
 
         preds = np.concatenate(preds, axis=0)  # [N*batch_size, output_timestep]
         gts = np.concatenate(gts, axis=0)  # [N*batch_size, output_timestep]
-        logger.info(f'preds.shape: {preds.shape}, gts.shape: {gts.shape}')
+        # logger.info(f'preds.shape: {preds.shape}, gts.shape: {gts.shape}')
 
         # 逆标准化, 默认最后一列为目标变量y
         preds = preds * stds[-1] + means[-1]
@@ -201,7 +203,7 @@ def evaluate_stgcn(config, model_dir, logger):
             out = model(A_wave, x)
             preds.append(out.cpu().numpy())  # [N, batch_size, num_nodes, output_timestep], (3025, 134, 288)
             gts.append(y.cpu().numpy()) # [N, batch_size, num_nodes, output_timestep]
-            breakpoint()
+            # breakpoint()
 
     preds = np.concatenate(preds, axis=0)   # [N, num_nodes, output_timestep]
     gts   = np.concatenate(gts, axis=0)     # [N, num_nodes, output_timestep]
@@ -235,6 +237,71 @@ def evaluate_stgcn(config, model_dir, logger):
     gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
     logger.info('Evaluate finished!')
 
+def evaluate_mtgnn(config, model_dir, logger):
+    # 评估STGCN模型
+
+    _, _, test_original_data, A_wave, means, stds = get_gnn_data(config, logger)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger.info(f'Device: {device}')
+
+    model = torch.load(os.path.join(model_dir, 'model', config['model_name'], f'model_STGCN.pt'), 
+                       map_location=device)
+    model.to(device)
+    model.eval()
+
+    test_indices = [(i, i + (config['input_len'] + config['output_len'])) 
+           for i in range(test_original_data.shape[2] - \
+                          (config['input_len'] + config['output_len']) + 1)]
+    
+    logger.info(f'Begin to predict on {len(test_indices)} samples...')
+    preds, gts = [], []
+    with torch.no_grad():
+        for i in tqdm(range(0, len(test_indices), config['batch_size'])):
+            x, y = generate_dataset(test_original_data, 
+                                    test_indices[i:i + config['batch_size']],
+                                    config['input_len'], 
+                                    config['output_len'],
+                                    return_type=2)
+            x   = x.to(device)  # [32, 10, 134, 288]
+            out = model(x)[:, :, :, 0]  # [batch size, output_seq_len, num_nodes]  [32, 288, 134]
+            # breakpoint()
+            preds.append(out.cpu().numpy())  # [N, batch_size, num_nodes, output_timestep], (3025, 134, 288)
+            gts.append(y.cpu().numpy()) # [N, batch_size, num_nodes, output_timestep] [32, 288, 134]
+
+    preds = np.concatenate(preds, axis=0)   # [N, num_nodes, output_timestep]
+    gts   = np.concatenate(gts, axis=0)     # [N, num_nodes, output_timestep]
+
+    # 逆标准化, 默认最后一列为目标变量y
+    preds = preds * stds[-1] + means[-1]
+    gts   = gts * stds[-1] + means[-1]
+    plot_predictions(preds[0, 0, :], gts[0, 0, :], model_dir)
+
+    logger.info(f'Caculating regression metrics on {len(test_indices)} samples...')
+    result_all = []
+    for i in tqdm(range(preds.shape[2])):
+        result_one = regression_metric(preds[:, :, i] / 1000, gts[:, :, i] / 1000)
+        result_all.append(result_one)
+    result_all_df = pd.DataFrame(result_all, 
+                                 columns=result_one.keys(),
+                                 index=[f'Turbine_{i}' for i in range(config['capacity'])])
+    overall_metrics = {col: result_all_df[col].sum() for col in result_all_df.columns}
+    overall_df      = pd.DataFrame(overall_metrics, index=['Total'])
+    result_all_df   = pd.concat([result_all_df, overall_df], axis=0)
+    result_all_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_turbines.csv'), index=True)
+    logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
+
+    # Save predictions and ground truths， 太大了，一个csv文件1GB，先不保存
+    # logger.info(f'Saving predictions and ground truths in {model_dir}...')
+    # preds   = preds.reshape(preds.shape[1] * preds.shape[0], preds.shape[2]) # [num_nodes * N, output_timestep]
+    # gts     = gts.reshape(gts.shape[1] * gts.shape[0], gts.shape[2])    # [num_nodes * N, output_timestep]
+    # pred_df = pd.DataFrame(preds, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
+    # gt_df   = pd.DataFrame(gts, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
+    # pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
+    # gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
+    logger.info('Evaluate finished!')
+
+
 if __name__ == "__main__":
 
     with open('config.json', 'r') as f:
@@ -253,9 +320,9 @@ if __name__ == "__main__":
     logger       = Logger_.logger
     logger.info(f"LOCAL TIME: {current_time}")
 
-    result_dir = './result/2023_12_27_17_51_53_LSTM'
+    result_dir = './result/2024_01_05_10_03_53_MTGNN'
     # result_dir = './result/2023_12_27_16_38_13_rnn'
     logger.info(f'Result directory: {result_dir}')
-    # evaluate(config, result_dir, logger)
-    evaluate_stgcn(config, result_dir, logger)
+    evaluate_mtgnn(config, result_dir, logger)
+    # evaluate_stgcn(config, result_dir, logger)
     # evaluate_all(config, result_dir, logger)

@@ -6,7 +6,7 @@ from log.logutli import Logger
 from models import RNN
 from data_prepare import WindTurbineDataset
 from train import traverse_wind_farm
-from evaluate import evaluate, evaluate_stgcn, evaluate_all
+from evaluate import evaluate_stgcn, evaluate_all, evaluate_mtgnn
 
 def main():
 
@@ -44,6 +44,8 @@ def main():
     logger.info('Starts evaluating...')
     if config['model_name'].lower() == 'stgcn':
         evaluate_stgcn(config, save_dir, logger)
+    elif config['model_name'].lower() == 'mtgnn':
+        evaluate_mtgnn(config, save_dir, logger)
     else:
         evaluate_all(config, save_dir, logger)
 

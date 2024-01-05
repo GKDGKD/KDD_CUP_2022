@@ -7,8 +7,9 @@ import torch.nn as nn
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from data_prepare import WindTurbineDataset
-from models import RNN, LSTM, GRU, STGCN, TCN
-from utils import get_gnn_data, generate_dataset
+from models import RNN, LSTM, GRU, STGCN, TCN, gtnet
+from utils import get_gnn_data, generate_dataset, get_adjency_matrix, get_normalized_adj
+from crossformer import Crossformer
 
 class EarlyStopping:
     def __init__(self, patience=5, delta=0, path='best_model.pt'):
@@ -211,7 +212,9 @@ def train(model_map, device, criterion, config, model_save_dir, logger):
                 x, y = x.to(device), y.to(device)
                 # print(f'x.device: {x.device}, y.device: {y.device}, model.device: {model.device}')
                 optimizer.zero_grad()
-                out  = model(x).to(device)
+                out  = model(x)
+                if out.shape[2] > 1:
+                    out = out[:, :, -1]
                 # print(f'out.device: {out.device}, y.device:{y.device}')
                 loss = criterion(out, y)
                 loss.backward()
@@ -238,6 +241,8 @@ def train(model_map, device, criterion, config, model_save_dir, logger):
                                             config['output_len'])
                     x, y = x.to(device), y.to(device)
                     out  = model(x).to(device)
+                    if out.shape[2] > 1:
+                        out = out[:, :, -1]
                     loss = criterion(out, y)
                     val_loss.append(loss.item())
             val_loss_epoch = np.mean(val_loss)
@@ -294,8 +299,10 @@ def train_stgcn(model, device, criterion, config, model_save_dir, logger=None):
             x, y = generate_dataset(train_original_data, 
                                     train_indices[i:i + config['batch_size']],
                                     config['input_len'], 
-                                    config['output_len'])
-            # x: [batch_size, num_nodes, input_len, num_features], [64, 134, 288, 10]
+                                    config['output_len'],
+                                    return_type=1 if config['model_name'].lower() == 'stgcn' else 2)
+            # STGCN input x: [batch_size, num_nodes, seq_len, num_features], [64, 134, 288, 10]
+            # MTGNN input x: [batch size, num_features, num_nodes, seq_len]
             # y: [batch_size, num_nodes, output_len], [64, 134, 288]
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
@@ -321,10 +328,99 @@ def train_stgcn(model, device, criterion, config, model_save_dir, logger=None):
                 x, y = generate_dataset(val_original_data, 
                                         val_indices[i:i + config['batch_size']],
                                         config['input_len'], 
-                                        config['output_len'])
+                                        config['output_len'],
+                                        return_type=1 if config['model_name'].lower() == 'stgcn' else 2)
                 x    = x.to(device)
                 y    = y.to(device)
                 out  = model(A_wave, x).to(device)
+                loss = criterion(out, y)
+                val_loss.append(loss.item())
+        val_loss_epoch = np.mean(val_loss)
+        val_loss_history.append(val_loss_epoch)
+        epoch_end_time = time.time()
+        cost_time = epoch_end_time - epoch_start_time # batch_size为64时，1个epoch大概6min+
+        logger.info(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
+                f'Train Loss: {train_loss_epoch:.4f}, '
+                f'Validation Loss: {val_loss_epoch:.4f}, '
+                f'Learning Rate: {scheduler.get_last_lr()[0]:.2e},'
+                f'Cost time: {cost_time:.2f}s')
+
+        # 早停
+        early_stopping(val_loss_epoch, model)
+        if early_stopping.early_stop:
+            logger.info(f'Early stopping after {config["patience"]} epochs without improvement.')
+            break
+
+    plot_loss(train_loss_history, val_loss_history, model_save_dir, config['model_name'])
+            
+    return train_loss_history, val_loss_history
+
+
+def train_mtgnn(model, device, criterion, config, model_save_dir, logger=None):
+    # 训练STGCN模型
+    logger.info('Reading data ...')
+    train_original_data, val_original_data, _, A_wave, _, _ = get_gnn_data(config, logger)
+    logger.info('Starts training STGCN...')
+
+    train_loss_history, val_loss_history    = [], []
+    train_indices = [(i, i + (config['input_len'] + config['output_len'])) 
+           for i in range(train_original_data.shape[2] - \
+                          (config['input_len'] + config['output_len']) + 1)]
+    val_indices = [(i, i + (config['input_len'] + config['output_len'])) 
+           for i in range(val_original_data.shape[2] - \
+                          (config['input_len'] + config['output_len']) + 1)]
+    
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config['lr_rate']) # 这两个不能放外面
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 
+                                                step_size=config['lr_step_size'], 
+                                                gamma=config['lr_gamma'])
+    early_stopping = EarlyStopping(config['patience'], 
+                               delta=config['delta'], 
+                               path=os.path.join(model_save_dir, f'model_{config["model_name"]}.pt'))
+    
+    for epoch in range(config['max_epoch']):
+        train_loss = []
+        epoch_start_time = time.time()
+        model.train()
+        for i in range(0, len(train_indices), config['batch_size']):
+            x, y = generate_dataset(train_original_data, 
+                                    train_indices[i:i + config['batch_size']],
+                                    config['input_len'], 
+                                    config['output_len'],
+                                    return_type=1 if config['model_name'].lower() == 'stgcn' else 2)
+            # STGCN input x: [batch_size, num_nodes, seq_len, num_features], [64, 134, 288, 10]
+            # MTGNN input x: [batch size, num_features, num_nodes, seq_len]
+            # y: [batch_size, num_nodes, output_len], [64, 134, 288]
+            x, y = x.to(device), y.to(device)
+            optimizer.zero_grad()
+            out  = model(x)[:, :, :, 0]  # [batch size, output_seq_len, num_nodes, 1]
+            loss = criterion(out, y)
+            loss.backward()
+            optimizer.step()
+            train_loss.append(loss.item())
+            if i % 10 == 0:
+                logger.info(f'Epoch: {epoch + 1}/{config["max_epoch"]}, '
+                        f'Batch: {i}/{int(len(train_indices))}, '
+                        f'Train Loss: {loss.item():.4f}')
+
+        train_loss_epoch = np.mean(train_loss)
+        train_loss_history.append(train_loss_epoch)
+        if scheduler:
+            scheduler.step()
+
+        model.eval()
+        with torch.no_grad():
+            val_loss = []
+            for i in range(0, len(val_indices), config['batch_size']):
+                x, y = generate_dataset(val_original_data, 
+                                        val_indices[i:i + config['batch_size']],
+                                        config['input_len'], 
+                                        config['output_len'],
+                                        return_type=1 if config['model_name'].lower() == 'stgcn' else 2)
+                x    = x.to(device)
+                y    = y.to(device)
+                out  = model(x)[:, :, :, 0]
                 loss = criterion(out, y)
                 val_loss.append(loss.item())
         val_loss_epoch = np.mean(val_loss)
@@ -362,6 +458,9 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Device: {device}, model: {config["model_name"]}')
+
+    A      = get_adjency_matrix(config['location_path'], config['thresh_distance'])
+    A_wave = torch.from_numpy(get_normalized_adj(A)).to(torch.float32)
     model_map = {
         'rnn': RNN(input_size=config['input_size'], 
                     hidden_size = config['hidden_size'],
@@ -387,10 +486,20 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
                     kernel_size  = config['kernel_size'],
                     dropout      = config['dropout'],
                     device       = device),
+        "crossformer": Crossformer(data_dim=config['input_size'],
+                                   in_len=config['input_len'],
+                                   out_len=config['output_len'],
+                                   seg_len=config['seg_len'],
+                                   device = device),
         'stgcn': STGCN(num_nodes=config['capacity'],
                         num_features         = 10 if config['start_col'] == 3 else 1,
                         num_timesteps_input  = config['input_len'] ,
-                        num_timesteps_output = config['output_len'])
+                        num_timesteps_output = config['output_len']),
+        'mtgnn': gtnet(gcn_true=True, buildA_true=True, gcn_depth=config['num_layers'], 
+                       num_nodes=config['capacity'], device=device, predefined_A=A_wave,
+                       in_dim=config['input_size'], out_dim=config['output_len'],
+                       seq_length=config['input_len'],
+                       ) # x_input: [batch size, num_features, num_nodes, seq_len]
     }
 
     logger.info(f'Use model: {config["model_name"]}')
@@ -406,20 +515,20 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
 
     if config['model_name'].lower() == 'stgcn':
         model = model_map[config['model_name'].lower()]
-        logger.info('-' * 30 + f' Training STGCN ' + '-' * 30)
-        save_dir = os.path.join(model_save_dir, 'STGCN')
+        logger.info('-' * 30 + f' Training {config["model_name"]} ' + '-' * 30)
+        save_dir = os.path.join(model_save_dir, config["model_name"])
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         train_stgcn(model, device, criterion, config, save_dir, logger)
+    elif config['model_name'].lower() == 'mtgnn':
+        model = model_map[config['model_name'].lower()]
+        logger.info('-' * 30 + f' Training {config["model_name"]} ' + '-' * 30)
+        save_dir = os.path.join(model_save_dir, config["model_name"])
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        train_mtgnn(model, device, criterion, config, save_dir, logger)
 
     elif config['model_name'].lower() in model_map.keys():
-        # for i in range(config['capacity']):
-        #     model = model_map[config['model_name'].lower()]
-        #     logger.info('-' * 30 + f' Training Turbine {i} ' + '-' * 30)
-        #     save_dir = os.path.join(model_save_dir, f'Turbine_{i}')
-        #     if not os.path.exists(save_dir):
-        #         os.makedirs(save_dir)
-        #     train_and_val(i, model, criterion, config, save_dir, logger)
         train(model_map, device, criterion, config, model_save_dir, logger)
 
     else:

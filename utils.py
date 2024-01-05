@@ -64,6 +64,7 @@ def generate_dataset(X,
                      indices, 
                      input_time_steps=12, 
                      output_time_steps=3, 
+                     return_type = 1,
                      target_col=-1, 
                      to_tensor=True):
     """
@@ -98,11 +99,22 @@ def generate_dataset(X,
     else:
         raise ValueError('X must be 2D or 3D array')
     
+    features, target = np.array(features), np.array(target)
+                
+            
+    if return_type == 1:
+        # STGCN input x: [batch_size, num_nodes, seq_len, num_features], [64, 134, 288, 10]
+        pass
+    elif return_type == 2:
+        # MTGNN input x: [batch size, num_features, num_nodes, seq_len]
+        features = features.transpose(0, 3, 1, 2)
+        target = target.transpose(0, 2, 1)
+
     if to_tensor:
-        return (torch.from_numpy(np.array(features)).to(torch.float32), 
-                torch.from_numpy(np.array(target)).to(torch.float32))
+        return (torch.from_numpy(features).to(torch.float32), 
+                torch.from_numpy(target).to(torch.float32))
     else:
-        return np.array(features), np.array(target)
+        return features, target
 
 
 def get_gnn_data(config, logger):

@@ -406,7 +406,7 @@ class gtnet(nn.Module):
                  skip_channels=64, end_channels=128, seq_length=12, in_dim=2, out_dim=12, layers=3, 
                  propalpha=0.05, tanhalpha=3, layer_norm_affline=True):
         """
-        Initializes a GTNet model.
+        Initializes a MTGNN model.
 
         Args:
             gcn_true (bool): Whether to use graph convolutional networks (GCN) or not.

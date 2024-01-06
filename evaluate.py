@@ -137,8 +137,8 @@ def evaluate_all(config, model_dir, logger):
                 # x: [batch_size, input_len, num_features], y: [batch_size, output_len]
                 x   = x.to(device)
                 out = model(x)  # [batch_size, output_len]
-                if out.shape[2] > 1:
-                    out = out[:, :, -1]
+                # if out.shape[2] > 1:
+                #     out = out[:, :, -1]
                 preds.append(out.cpu().numpy())  # [N, batch_size, output_timestep]
                 gts.append(y.cpu().numpy()) # [N, batch_size, output_timestep]
 
@@ -264,7 +264,8 @@ def evaluate_mtgnn(config, model_dir, logger):
                                     config['output_len'],
                                     return_type=2)
             x   = x.to(device)  # [32, 10, 134, 288]
-            out = model(x)[:, :, :, 0]  # [batch size, output_seq_len, num_nodes]  [32, 288, 134]
+            out = model(x)  # [batch size, output_seq_len, num_nodes]  [32, 288, 134]
+            out = out[:, :, :, 0] if out.ndim > 3 else out
             # breakpoint()
             preds.append(out.cpu().numpy())  # [N, batch_size, num_nodes, output_timestep], (3025, 134, 288)
             gts.append(y.cpu().numpy()) # [N, batch_size, num_nodes, output_timestep] [32, 288, 134]

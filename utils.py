@@ -3,8 +3,7 @@ import pandas as pd
 import torch
 import os
 from sklearn.metrics.pairwise import euclidean_distances
-from torch.utils.data import DataLoader
-
+from scipy.sparse.linalg import eigs
 
 
 def get_adjency_matrix(data_path, threshold=1000):
@@ -78,7 +77,7 @@ def generate_dataset(X,
         to_tensor: 是否转换为tensor
     Returns:
         features: shape: [num_windows, input_time_steps, num_nodes, num_features]
-        target: shape: [num_windows, output_time_steps, num_nodes, num_features]
+        target: shape: [num_windows, batch_size, num_nodes, output_time_steps]
     """
     
     # 得到窗口数据，注意两个time_step过百很容易爆内存
@@ -101,7 +100,6 @@ def generate_dataset(X,
     
     features, target = np.array(features), np.array(target)
                 
-            
     if return_type == 1:
         # STGCN input x: [batch_size, num_nodes, seq_len, num_features], [64, 134, 288, 10]
         pass
@@ -109,6 +107,10 @@ def generate_dataset(X,
         # MTGNN input x: [batch size, num_features, num_nodes, seq_len]
         features = features.transpose(0, 3, 1, 2)
         target = target.transpose(0, 2, 1)
+    elif return_type == 3:
+        # ASTGCN input x: [batch size, num_nodes, num_features, in_seq_len]
+        # out: [batch size, num_nodes, out_seq_len]
+        features = features.transpose(0, 1, 3, 2)
 
     if to_tensor:
         return (torch.from_numpy(features).to(torch.float32), 
@@ -136,6 +138,12 @@ def get_gnn_data(config, logger):
     data.fillna(method='bfill', inplace=True)
     data['Patv'] = data[config['target']].apply(lambda x: max(0, x))
     logger.info(f'Raw data.shape: {data.shape}')
+
+    # # 删除异常值， 但是删了就组不成
+    # outliers1 = (data['Ndir'] > 720) | (data['Ndir'] < -720)
+    # outliers2 = (data['Wdir'] > 180) | (data['Wdir'] < -180)
+    # data = data[~(outliers1 | outliers2)]
+    # logger.info(f'After removing outliers, data.shape: {data.shape}')
 
     # 按TurbID分组
     data = group_data(data, config['start_col']) # [num_nodes, seq_len, num_features]
@@ -170,3 +178,55 @@ def get_gnn_data(config, logger):
             A_wave,
             means,
             stds)
+
+
+def scaled_Laplacian(W):
+    '''
+    compute \tilde{L}
+
+    Parameters
+    ----------
+    W: np.ndarray, shape is (N, N), N is the num of vertices
+
+    Returns
+    ----------
+    scaled_Laplacian: np.ndarray, shape (N, N)
+
+    '''
+
+    assert W.shape[0] == W.shape[1]
+    W = np.array(W)
+
+    D = np.diag(np.sum(W, axis=1))
+
+    L = D - W
+
+    lambda_max = eigs(L, k=1, which='LR')[0].real
+
+    return (2 * L) / lambda_max - np.identity(W.shape[0])
+
+
+def cheb_polynomial(L_tilde, K):
+    '''
+    compute a list of chebyshev polynomials from T_0 to T_{K-1}
+
+    Parameters
+    ----------
+    L_tilde: scaled Laplacian, np.ndarray, shape (N, N)
+
+    K: the maximum order of chebyshev polynomials
+
+    Returns
+    ----------
+    cheb_polynomials: list(np.ndarray), length: K, from T_0 to T_{K-1}
+
+    '''
+
+    N = L_tilde.shape[0]
+
+    cheb_polynomials = [np.identity(N), L_tilde.copy()]
+
+    for i in range(2, K):
+        cheb_polynomials.append(2 * L_tilde * cheb_polynomials[i - 1] - cheb_polynomials[i - 2])
+
+    return cheb_polynomials

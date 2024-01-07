@@ -14,14 +14,13 @@ class Spatial_Attention_layer(nn.Module):
         self.W1 = nn.Parameter(torch.FloatTensor(num_of_timesteps).to(DEVICE))
         self.W2 = nn.Parameter(torch.FloatTensor(in_channels, num_of_timesteps).to(DEVICE))
         self.W3 = nn.Parameter(torch.FloatTensor(in_channels).to(DEVICE))
-        self.bs = nn.Parameter(torch.FloatTensor(1, num_of_vertices, num_of_vertices).to(DEVICE))
-        self.Vs = nn.Parameter(torch.FloatTensor(num_of_vertices, num_of_vertices).to(DEVICE))
-
+        # self.bs = nn.Parameter(torch.FloatTensor(1, num_of_vertices, num_of_vertices).to(DEVICE))
+        # self.Vs = nn.Parameter(torch.FloatTensor(num_of_vertices, num_of_vertices).to(DEVICE))
 
     def forward(self, x):
         '''
         :param x: (batch_size, N, F_in, T)
-        :return: (B,N,N)
+        :return: (B, N, N)
         '''
 
         lhs = torch.matmul(torch.matmul(x, self.W1), self.W2)  # (b,N,F,T)(T)->(b,N,F)(F,T)->(b,N,T)
@@ -30,9 +29,9 @@ class Spatial_Attention_layer(nn.Module):
 
         product = torch.matmul(lhs, rhs)  # (b,N,T)(b,T,N) -> (B, N, N)
 
-        S = torch.matmul(self.Vs, torch.sigmoid(product + self.bs))  # (N,N)(B, N, N)->(B,N,N)
+        # S = torch.matmul(self.Vs, torch.sigmoid(product + self.bs))  # (N,N)(B, N, N)->(B,N,N)
 
-        S_normalized = F.softmax(S, dim=1)
+        S_normalized = F.softmax(product, dim=1)
 
         return S_normalized
 
@@ -96,15 +95,15 @@ class Temporal_Attention_layer(nn.Module):
         self.U1 = nn.Parameter(torch.FloatTensor(num_of_vertices).to(DEVICE))
         self.U2 = nn.Parameter(torch.FloatTensor(in_channels, num_of_vertices).to(DEVICE))
         self.U3 = nn.Parameter(torch.FloatTensor(in_channels).to(DEVICE))
-        self.be = nn.Parameter(torch.FloatTensor(1, num_of_timesteps, num_of_timesteps).to(DEVICE))
-        self.Ve = nn.Parameter(torch.FloatTensor(num_of_timesteps, num_of_timesteps).to(DEVICE))
+        # self.be = nn.Parameter(torch.FloatTensor(1, num_of_timesteps, num_of_timesteps).to(DEVICE))
+        # self.Ve = nn.Parameter(torch.FloatTensor(num_of_timesteps, num_of_timesteps).to(DEVICE))
 
     def forward(self, x):
         '''
         :param x: (batch_size, N, F_in, T)
         :return: (B, T, T)
         '''
-        _, num_of_vertices, num_of_features, num_of_timesteps = x.shape
+
 
         lhs = torch.matmul(torch.matmul(x.permute(0, 3, 2, 1), self.U1), self.U2)
         # x:(B, N, F_in, T) -> (B, T, F_in, N)
@@ -115,10 +114,9 @@ class Temporal_Attention_layer(nn.Module):
 
         product = torch.matmul(lhs, rhs)  # (B,T,N)(B,N,T)->(B,T,T)
 
-        E = torch.matmul(self.Ve, torch.sigmoid(product + self.be))  # (B, T, T) # 原版
-        # E = product
+        # E = torch.matmul(self.Ve, torch.sigmoid(product + self.be))  # (B, T, T) # 原版
 
-        E_normalized = F.softmax(E, dim=1)
+        E_normalized = F.softmax(product, dim=1)
 
         return E_normalized
 
@@ -199,7 +197,7 @@ class ASTGCN_block(nn.Module):
         self.SAt           = Spatial_Attention_layer(DEVICE, in_channels, num_of_vertices, num_of_timesteps)
         self.cheb_conv_SAt = cheb_conv_withSAt(K, cheb_polynomials, in_channels, nb_chev_filter)
         self.time_conv     = nn.Conv2d(nb_chev_filter, nb_time_filter, kernel_size=(1, 3), stride=(1, time_strides), padding=(0, 1))
-        self.time_conv2    = nn.Conv2d(nb_chev_filter, nb_time_filter, kernel_size=(1, 3), stride=(1, 1), padding=(0, 1), dilation=(1, 2))
+        # self.time_conv2    = nn.Conv2d(nb_chev_filter, nb_time_filter, kernel_size=(1, 3), stride=(1, 1), padding=(0, 1), dilation=(1, 2))
         self.residual_conv = nn.Conv2d(in_channels, nb_time_filter, kernel_size=(1, 1), stride=(1, time_strides))
         self.ln            = nn.LayerNorm(nb_time_filter)  #需要将channel放到最后一个维度上
         # self.bn = nn.BatchNorm2d(nb_time_filter)
@@ -232,8 +230,7 @@ class ASTGCN_block(nn.Module):
 
         # breakpoint()
 
-        x_residual = self.ln(F.relu(x_residual + time_conv_output).permute(0, 3, 2, 1)).permute(0, 2, 3, 1)  # 原版
-        # x_residual = self.bn(F.relu(x_residual + time_conv_output).permute(0, 3, 2, 1)).permute(0, 2, 3, 1)
+        x_residual = self.ln(F.relu(x_residual + time_conv_output).permute(0, 3, 2, 1)).permute(0, 2, 3, 1) 
         # (b,F,N,T)->(b,T,N,F) -ln-> (b,T,N,F)->(b,N,F,T)
 
         return x_residual
@@ -284,7 +281,7 @@ class ASTGCN_submodule(nn.Module):
         return output
 
 
-def make_model(DEVICE, nb_block, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, adj_mx, num_for_predict, len_input, num_of_vertices):
+def make_my_model(DEVICE, nb_block, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, adj_mx, num_for_predict, len_input, num_of_vertices):
     '''
     Create a model for ASTGCN.
     Args:

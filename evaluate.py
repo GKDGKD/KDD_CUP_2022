@@ -164,14 +164,34 @@ def evaluate_all(config, model_dir, logger):
     result_all_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_turbines.csv'), index=True)
     logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
 
+    # 分步统计多步向前的预测结果
+    pred_all, gts_all = np.array(pred_all), np.array(gts_all)
+    pred_all = pred_all.transpose(1, 0, 2)  # [N, num_nodes, output_timestep]
+    gts_all  = gts_all.transpose(1, 0, 2)   # [N, num_nodes, output_timestep]
+    logger.info(f'pred_all.shape: {pred_all.shape}, gts_all.shape: {gts_all.shape}')
+    logger.info(f'Caculating regression metrics on {pred_all.shape[2]} time steps...')
+    result_steps = []
+    for i in tqdm(range(pred_all.shape[2])):
+        res_step = regression_metric(pred_all[:, :, i], gts_all[:, :, i])
+        result_steps.append(res_step)
+    result_steps_df = pd.DataFrame(result_steps, 
+                                   columns=res_step.keys(),
+                                   index=[f'Time_step_{i+1}' for i in range(pred_all.shape[2])])
+    steps_metrics = {col: result_steps_df[col].sum() for col in result_steps_df.columns}
+    steps_df      = pd.DataFrame(steps_metrics, index=['Total'])
+    result_steps_df = pd.concat([result_steps_df, steps_df], axis=0)
+    result_steps_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_time_steps.csv'), index=True)
+    logger.info(', '.join([f'{k}: {v}' for k, v in steps_metrics.items()]))
+
+
     # Save predictions and ground truths
-    # logger.info(f'Saving predictions and ground truths in {model_dir}...')
-    # pred_all = np.array(pred_all).reshape(pred_all.shape[0]*pred_all.shape[1], pred_all.shape[2]) # [num_nodes * N, output_timestep]
-    # gts_all  = np.array(gts_all).reshape(gts_all.shape[0]*gts_all.shape[1], gts_all.shape[2])      # [num_nodes * N, output_timestep]
-    # pred_df  = pd.DataFrame(pred_all, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
-    # gt_df    = pd.DataFrame(gts_all, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
-    # pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
-    # gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
+    logger.info(f'Saving predictions and ground truths in {model_dir}...')
+    pred_all = np.array(pred_all).reshape(pred_all.shape[1]*pred_all.shape[0], pred_all.shape[2]) # [num_nodes * N, output_timestep]
+    gts_all  = np.array(gts_all).reshape(gts_all.shape[1]*gts_all.shape[0], gts_all.shape[2])      # [num_nodes * N, output_timestep]
+    pred_df  = pd.DataFrame(pred_all, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
+    gt_df    = pd.DataFrame(gts_all, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
+    pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
+    gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
     logger.info('Evaluate finished!')
 
 def evaluate_stgcn(config, model_dir, logger):
@@ -227,6 +247,22 @@ def evaluate_stgcn(config, model_dir, logger):
     result_all_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_turbines.csv'), index=True)
     logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
 
+    # 分步统计多步向前的预测结果
+    logger.info(f'Caculating regression metrics on {preds.shape[2]} time steps...')
+    result_steps = []
+    for i in tqdm(range(preds.shape[2])):
+        res_step = regression_metric(preds[:, :, i], gts[:, :, i])
+        result_steps.append(res_step)
+    result_steps_df = pd.DataFrame(result_steps, 
+                                   columns=res_step.keys(),
+                                   index=[f'Time_step_{i+1}' for i in range(preds.shape[2])])
+    steps_metrics = {col: result_steps_df[col].sum() for col in result_steps_df.columns}
+    steps_df      = pd.DataFrame(steps_metrics, index=['Total'])
+    result_steps_df = pd.concat([result_steps_df, steps_df], axis=0)
+    result_steps_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_time_steps.csv'), index=True)
+    logger.info(', '.join([f'{k}: {v}' for k, v in steps_metrics.items()]))
+
+
     # Save predictions and ground truths， 太大了，一个csv文件1GB，先不保存
     logger.info(f'Saving predictions and ground truths in {model_dir}...')
     preds   = preds.reshape(preds.shape[1] * preds.shape[0], preds.shape[2]) # [num_nodes * N, output_timestep]
@@ -245,10 +281,18 @@ def evaluate_mtgnn(config, model_dir, logger):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Device: {device}')
 
-    model = torch.load(os.path.join(model_dir, 'model', config['model_name'], f'model_STGCN.pt'), 
+    model = torch.load(os.path.join(model_dir, 'model', config['model_name'], f'model_{config["model_name"]}.pt'), 
                        map_location=device)
     model.to(device)
     model.eval()
+
+    x_type_map = {
+        'stgcn': 1,
+        'mtgnn': 2,
+        'astgcn': 3,
+        'fastgcn': 3
+    }
+    x_type = x_type_map[config['model_name'].lower()]
 
     test_indices = [(i, i + (config['input_len'] + config['output_len'])) 
            for i in range(test_original_data.shape[2] - \
@@ -262,7 +306,7 @@ def evaluate_mtgnn(config, model_dir, logger):
                                     test_indices[i:i + config['batch_size']],
                                     config['input_len'], 
                                     config['output_len'],
-                                    return_type=2)
+                                    return_type=x_type)
             x   = x.to(device)  # [32, 10, 134, 288]
             out = model(x)  # [batch size, output_seq_len, num_nodes]  [32, 288, 134]
             out = out[:, :, :, 0] if out.ndim > 3 else out
@@ -276,12 +320,13 @@ def evaluate_mtgnn(config, model_dir, logger):
     # 逆标准化, 默认最后一列为目标变量y
     preds = preds * stds[-1] + means[-1]
     gts   = gts * stds[-1] + means[-1]
+    logger.info(f'Predictions shape: {preds.shape}, ground truths shape: {gts.shape}')
     plot_predictions(preds[0, 0, :], gts[0, 0, :], model_dir)
 
     logger.info(f'Caculating regression metrics on {len(test_indices)} samples...')
     result_all = []
-    for i in tqdm(range(preds.shape[2])):
-        result_one = regression_metric(preds[:, :, i] / 1000, gts[:, :, i] / 1000)
+    for i in tqdm(range(preds.shape[1])):
+        result_one = regression_metric(preds[:, i, :] / 1000, gts[:, i, :] / 1000)
         result_all.append(result_one)
     result_all_df = pd.DataFrame(result_all, 
                                  columns=result_one.keys(),
@@ -292,14 +337,29 @@ def evaluate_mtgnn(config, model_dir, logger):
     result_all_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_turbines.csv'), index=True)
     logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
 
+    # 分步统计多步向前的预测结果
+    logger.info(f'Caculating regression metrics on {preds.shape[2]} time steps...')
+    result_steps = []
+    for i in tqdm(range(preds.shape[2])):
+        res_step = regression_metric(preds[:, :, i], gts[:, :, i])
+        result_steps.append(res_step)
+    result_steps_df = pd.DataFrame(result_steps, 
+                                   columns=res_step.keys(),
+                                   index=[f'Time_step_{i+1}' for i in range(preds.shape[2])])
+    steps_metrics = {col: result_steps_df[col].sum() for col in result_steps_df.columns}
+    steps_df      = pd.DataFrame(steps_metrics, index=['Total'])
+    result_steps_df = pd.concat([result_steps_df, steps_df], axis=0)
+    result_steps_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_time_steps.csv'), index=True)
+    logger.info(', '.join([f'{k}: {v}' for k, v in steps_metrics.items()]))
+
     # Save predictions and ground truths， 太大了，一个csv文件1GB，先不保存
-    # logger.info(f'Saving predictions and ground truths in {model_dir}...')
-    # preds   = preds.reshape(preds.shape[1] * preds.shape[0], preds.shape[2]) # [num_nodes * N, output_timestep]
-    # gts     = gts.reshape(gts.shape[1] * gts.shape[0], gts.shape[2])    # [num_nodes * N, output_timestep]
-    # pred_df = pd.DataFrame(preds, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
-    # gt_df   = pd.DataFrame(gts, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
-    # pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
-    # gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
+    logger.info(f'Saving predictions and ground truths in {model_dir}...')
+    preds   = preds.reshape(preds.shape[1] * preds.shape[0], preds.shape[2]) # [num_nodes * N, output_timestep]
+    gts     = gts.reshape(gts.shape[1] * gts.shape[0], gts.shape[2])    # [num_nodes * N, output_timestep]
+    pred_df = pd.DataFrame(preds, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
+    gt_df   = pd.DataFrame(gts, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
+    pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
+    gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
     logger.info('Evaluate finished!')
 
 
@@ -321,9 +381,9 @@ if __name__ == "__main__":
     logger       = Logger_.logger
     logger.info(f"LOCAL TIME: {current_time}")
 
-    result_dir = './result/2024_01_05_10_03_53_MTGNN'
-    # result_dir = './result/2023_12_27_16_38_13_rnn'
+    result_dir = './result/2024_01_07_11_43_59_RNN'
+    # result_dir = './result/2024_01_07_11_58_54_ASTGCN'
     logger.info(f'Result directory: {result_dir}')
-    evaluate_mtgnn(config, result_dir, logger)
+    # evaluate_mtgnn(config, result_dir, logger)
     # evaluate_stgcn(config, result_dir, logger)
-    # evaluate_all(config, result_dir, logger)
+    evaluate_all(config, result_dir, logger)

@@ -11,6 +11,8 @@ from models.model import RNN, LSTM, GRU, STGCN, TCN, gtnet
 from utils import get_gnn_data, generate_dataset, get_adjency_matrix, get_normalized_adj
 from models.crossformer import Crossformer
 from models.ASTGCN import make_model
+from models.myASTGCN import make_my_model
+
 class EarlyStopping:
     def __init__(self, patience=5, delta=0, path='best_model.pt'):
         self.patience   = patience
@@ -382,7 +384,8 @@ def train_mtgnn(model, device, criterion, config, model_save_dir, logger=None):
     x_type_map = {
         'stgcn': 1,
         'mtgnn': 2,
-        'astgcn': 3
+        'astgcn': 3,
+        'fastgcn': 3
     }
     x_type = x_type_map[config['model_name'].lower()]
     
@@ -522,6 +525,17 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
                              adj_mx=A_wave,
                              num_for_predict=config['output_len'],
                              len_input=config['input_len'],
+                             num_of_vertices=config['capacity']),
+        'fastgcn': make_my_model(device,
+                             nb_block=config['nb_block'],
+                             in_channels=config['input_size'],
+                             K=config['K'],
+                             nb_chev_filter=config['nb_chev_filter'],
+                             nb_time_filter=config['nb_time_filter'],
+                             time_strides=config['time_strides'],
+                             adj_mx=A_wave,
+                             num_for_predict=config['output_len'],
+                             len_input=config['input_len'],
                              num_of_vertices=config['capacity'])
     }
 
@@ -543,7 +557,8 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         train_stgcn(model, device, criterion, config, save_dir, logger)
-    elif config['model_name'].lower() == 'mtgnn' or config['model_name'].lower() == 'astgcn':
+
+    elif config['model_name'].lower() in {'mtgnn', 'astgcn', 'fastgcn'}:
         model = model_map[config['model_name'].lower()]
         logger.info('-' * 30 + f' Training {config["model_name"]} ' + '-' * 30)
         save_dir = os.path.join(model_save_dir, config["model_name"])
@@ -552,6 +567,7 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
         train_mtgnn(model, device, criterion, config, save_dir, logger)
 
     elif config['model_name'].lower() in model_map.keys():
+        # 传统RNN模型
         train(model_map, device, criterion, config, model_save_dir, logger)
 
     else:

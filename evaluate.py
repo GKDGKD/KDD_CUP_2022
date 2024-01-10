@@ -11,6 +11,9 @@ from data_prepare import WindTurbineDataset
 from metrics import regression_metric
 from log.logutli import Logger
 from utils import get_gnn_data, generate_dataset
+from statsmodels.tsa.arima.model import ARIMA
+import warnings
+warnings.filterwarnings("ignore")
 
 def forecast_one(turbine_id, config, model_dir, device):
     data_test = WindTurbineDataset(
@@ -100,6 +103,91 @@ def evaluate(config, result_dir, logger):
     result_all_df.to_csv(os.path.join(result_dir, 'Regression_metrics_all_turbines.csv'), index=True)
     logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
     logger.info('Evaluate finished!')
+
+def evaluate_arima(config, model_dir, logger):
+    # 评估ARIMA模型
+    _, _, test_original_data, _, means, stds = get_gnn_data(config, logger)
+    test_indices = [(i, i + (config['input_len'] + config['output_len'])) 
+           for i in range(test_original_data.shape[2] - \
+                          (config['input_len'] + config['output_len']) + 1)]
+
+    order = (config['p'], config['d'], config['q'])
+    logger.info(f'Order: {order}')
+
+    result_all, pred_all, gts_all = [], [], []
+    for turbine_id in range(config['capacity']):
+        data = test_original_data[turbine_id, -1, :]
+        model_path = os.path.join(model_dir, 'model', f'Turbine_{turbine_id}')
+        if not os.path.exists(model_path):
+            os.makedirs(model_path)
+        logger.info(f'Turbine: {turbine_id+1}/{config["capacity"]}, Begin to predict on {len(test_indices)} samples...')
+        preds, gts = [], []
+
+        for i in tqdm(range(test_original_data.shape[2] - \
+                            (config['input_len'] + config['output_len']) + 1)):
+            train = data[i: i + config['input_len']]
+            test  = data[i + config['input_len']: i + config['input_len'] + config['output_len']] # 真实值
+            train, test = train * stds[-1] + means[-1], test * stds[-1] + means[-1]
+
+            # 训练ARIMA模型
+            model = ARIMA(train, order=order)
+            model.initialize_approximate_diffuse()
+            model_fit = model.fit()
+
+            # 多步向前预测
+            pred = model_fit.forecast(steps=config['output_len'])  # [output_timestep, ]
+            preds.append(pred)
+            gts.append(test)
+            
+        preds = np.array(preds)  # [N, output_timestep]
+        gts   = np.array(gts)  # [N, output_timestep]
+        logger.info(f'preds.shape: {preds.shape}, gts.shape: {gts.shape}')
+
+        plot_predictions(preds[0], gts[0], model_path)
+        result_one = regression_metric(preds, gts)
+        result_all.append(result_one)
+        pred_all.append(preds) # [num_nodes, N, output_timestep]
+        gts_all.append(gts)    # [num_nodes, N, output_timestep]
+
+    result_all_df = pd.DataFrame(result_all, 
+                                columns=result_one.keys(),
+                                index=[f'Turbine_{i}' for i in range(config['capacity'])])
+    overall_metrics = {col: result_all_df[col].sum() for col in result_all_df.columns}
+    overall_df      = pd.DataFrame(overall_metrics, index=['Total'])
+    result_all_df   = pd.concat([result_all_df, overall_df], axis=0)
+    result_all_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_turbines.csv'), index=True)
+    logger.info(', '.join([f'{k}: {v}' for k, v in overall_metrics.items()]))
+
+    # 分步统计多步向前的预测结果
+    pred_all, gts_all = np.array(pred_all), np.array(gts_all)
+    pred_all = pred_all.transpose(1, 0, 2)  # [N, num_nodes, output_timestep]
+    gts_all  = gts_all.transpose(1, 0, 2)   # [N, num_nodes, output_timestep]
+    logger.info(f'pred_all.shape: {pred_all.shape}, gts_all.shape: {gts_all.shape}')
+    logger.info(f'Caculating regression metrics on {pred_all.shape[2]} time steps...')
+    result_steps = []
+    for i in tqdm(range(pred_all.shape[2])):
+        res_step = regression_metric(pred_all[:, :, i], gts_all[:, :, i])
+        result_steps.append(res_step)
+    result_steps_df = pd.DataFrame(result_steps, 
+                                   columns=res_step.keys(),
+                                   index=[f'Time_step_{i+1}' for i in range(pred_all.shape[2])])
+    steps_metrics = {col: result_steps_df[col].sum() for col in result_steps_df.columns}
+    steps_df      = pd.DataFrame(steps_metrics, index=['Total'])
+    result_steps_df = pd.concat([result_steps_df, steps_df], axis=0)
+    result_steps_df.to_csv(os.path.join(model_dir, 'Regression_metrics_all_time_steps.csv'), index=True)
+    logger.info(', '.join([f'{k}: {v}' for k, v in steps_metrics.items()]))
+
+
+    # Save predictions and ground truths
+    logger.info(f'Saving predictions and ground truths in {model_dir}...')
+    pred_all = np.array(pred_all).reshape(pred_all.shape[1]*pred_all.shape[0], pred_all.shape[2]) # [num_nodes * N, output_timestep]
+    gts_all  = np.array(gts_all).reshape(gts_all.shape[1]*gts_all.shape[0], gts_all.shape[2])      # [num_nodes * N, output_timestep]
+    pred_df  = pd.DataFrame(pred_all, columns=[f'pred_{i + 1}' for i in range(preds.shape[1])])
+    gt_df    = pd.DataFrame(gts_all, columns=[f'truth_{i + 1}' for i in range(gts.shape[1])])
+    pred_df.to_csv(os.path.join(model_dir, 'predictions.csv'), index=False)
+    gt_df.to_csv(os.path.join(model_dir, 'ground_truths.csv'), index=False)
+    logger.info('Evaluate finished!')
+
 
 def evaluate_all(config, model_dir, logger):
     # 评估所有普通模型
@@ -381,9 +469,10 @@ if __name__ == "__main__":
     logger       = Logger_.logger
     logger.info(f"LOCAL TIME: {current_time}")
 
-    result_dir = './result/2024_01_07_11_43_59_RNN'
+    result_dir = './result/2024_01_07_23_35_44_FASTGCN'
     # result_dir = './result/2024_01_07_11_58_54_ASTGCN'
-    logger.info(f'Result directory: {result_dir}')
+    # logger.info(f'Result directory: {result_dir}')
     # evaluate_mtgnn(config, result_dir, logger)
     # evaluate_stgcn(config, result_dir, logger)
-    evaluate_all(config, result_dir, logger)
+    # evaluate_all(config, result_dir, logger)
+    evaluate_arima(config, save_dir, logger)

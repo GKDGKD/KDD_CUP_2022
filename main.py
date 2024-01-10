@@ -42,7 +42,7 @@ def main():
     logger.info('Starts evaluating...')
     if config['model_name'].lower() == 'stgcn':
         evaluate_stgcn(config, save_dir, logger)
-    elif config['model_name'].lower() == 'mtgnn' or config['model_name'].lower() == 'astgcn':
+    elif config['model_name'].lower() in {'mtgnn', 'astgcn', 'fastgcn'}:
         evaluate_mtgnn(config, save_dir, logger)
     else:
         evaluate_all(config, save_dir, logger)

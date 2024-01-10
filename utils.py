@@ -95,6 +95,10 @@ def generate_dataset(X,
         for i, j in indices:
             features.append(X[:, i:i + input_time_steps].transpose(1, 0)) # [batch_size, input_time_steps, num_features]
             target.append(X[target_col, i + input_time_steps: j])  # [batch_size, output_time_steps]
+    elif X.ndim == 1:  # [seq_len,] 单变量时间序列，适合ARIMA
+        for i, j in indices:
+            features.append(X[i:i + input_time_steps]) # [N, input_time_steps]
+            target.append(X[i + input_time_steps: j])  # [N, output_time_steps]
     else:
         raise ValueError('X must be 2D or 3D array')
     

@@ -151,6 +151,7 @@ def train_and_val(turbine_id, model, criterion, config, model_save_dir, logger=N
             
     return train_loss_history, val_loss_history
 
+
 def train(model_map, device, criterion, config, model_save_dir, logger):
     """
     普通深度学习模型的训练函数.

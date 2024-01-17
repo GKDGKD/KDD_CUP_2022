@@ -3,7 +3,97 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils import scaled_Laplacian, cheb_polynomial
+from torch.nn.utils import weight_norm  
 
+class Chomp2d(nn.Module):
+    def __init__(self, chomp_size):
+        super(Chomp2d, self).__init__()
+        self.chomp_size = chomp_size
+
+    def forward(self, x):
+        """
+        裁剪多余的padding。
+
+        Args:
+            x: [batch_size, num_nodes, num_features, num_time_steps]
+        """
+        return x[:, :, :, : -self.chomp_size].contiguous()
+    
+class TemporalBlock2d(nn.Module):
+    def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, dropout=0.2):
+        super(TemporalBlock2d, self).__init__()
+        padding  = (kernel_size - 1) * dilation
+        self.conv1 = weight_norm(nn.Conv2d(n_inputs, n_outputs, kernel_size=(1, kernel_size),
+                                           stride=stride, padding=(0, padding), dilation=dilation))
+        self.chomp1   = Chomp2d(padding)
+        self.relu1    = nn.ReLU()
+        self.dropout1 = nn.Dropout(dropout)
+
+        self.conv2 = weight_norm(nn.Conv2d(n_outputs, n_outputs, kernel_size=(1, kernel_size),
+                                           stride=stride, padding=(0, padding), dilation=dilation))
+        self.chomp2   = Chomp2d(padding)
+        self.relu2    = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1,
+                                 self.conv2, self.chomp2, self.relu2, self.dropout2)
+        self.downsample = nn.Conv2d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
+        self.relu = nn.ReLU()
+        self.init_weights()
+
+    def init_weights(self):
+        self.conv1.weight.data.normal_(0, 0.01)
+        self.conv2.weight.data.normal_(0, 0.01)
+        if self.downsample is not None:
+            self.downsample.weight.data.normal_(0, 0.01)
+        
+    def forward(self, x):
+        """
+        Args:
+            x: [batch_size, num_nodes, num_features, num_time_steps]
+        """
+        print(f'block: x.shape: {x.shape}')
+        out = self.net(x)
+        res = x if self.downsample is None else self.downsample(x)
+        return self.relu(out + res)
+    
+class TCN2d(nn.Module):
+    def __init__(self, 
+                 input_size: int = 10, 
+                 output_size: int = 64,
+                 num_channels: list = [64, 128, 256], 
+                 kernel_size: int = 3, 
+                 dropout: float = 0.2,
+                 device: str = 'cpu'):
+        super(TCN2d, self).__init__()
+        self.device = device
+
+        layers = []
+        num_levels = len(num_channels)
+        for i in range(num_levels):
+            dilation_size = 2 ** i
+            in_channels = input_size if i == 0 else num_channels[i - 1]
+            out_channels = num_channels[i]
+            print(f'i: {i}, dilation: {dilation_size}, in_channels: {in_channels}, out_channels: {out_channels}')
+            layers += [TemporalBlock2d(in_channels, out_channels, kernel_size, stride=1, dilation=dilation_size, dropout=dropout)]
+
+        self.network = nn.Sequential(*layers)
+        self.linear  = nn.Linear(num_channels[-1], output_size)
+
+    def forward(self, x):
+        """
+        Args:
+            x: [batch_size, num_nodes, num_features, num_time_steps]
+        """
+
+        x = x.permute(0, 2, 1, 3)  # x: [bs, n, f, t] -> [bs, f, n, t]
+        print(f'tcn input: x.shape: {x.shape}')
+        x = x.to(self.device)
+        x = self.network(x)  # [bs, f, n, t] -> [bs, num_channels[-1], n, t]
+        print(f'tcn network output: x.shape: {x.shape}')
+        x = self.linear(x.permute(0, 2, 3, 1)) # [bs, num_channels[-1], n, t] -> [bs, n, t, num_channels[-1]] -> [bs, n, t, out_channels]
+        print(f'tcn linear output: x.shape: {x.shape}')
+        return x.permute(0, 3, 1, 2)  # [bs, n, t, out_channels] -> [bs, out_channels, n, t]
 
 class Spatial_Attention_layer(nn.Module):
     '''
@@ -172,8 +262,18 @@ class cheb_conv(nn.Module):
         return F.relu(torch.cat(outputs, dim=-1))
 
 
-class ASTGCN_block(nn.Module):
-    def __init__(self, DEVICE, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, cheb_polynomials, num_of_vertices, num_of_timesteps):
+class FASTGCN_block(nn.Module):
+    def __init__(self, 
+                 DEVICE, 
+                 in_channels, 
+                 K, 
+                 kernel_size,
+                 nb_chev_filter, 
+                 output_time_steps,
+                 tcn_channels, 
+                 cheb_polynomials, 
+                 num_of_vertices, 
+                 num_of_timesteps):
         """
         Initializes an instance of the ASTGCN_block class.
 
@@ -192,15 +292,16 @@ class ASTGCN_block(nn.Module):
         - None
         """
 
-        super(ASTGCN_block, self).__init__()
+        super(FASTGCN_block, self).__init__()
         self.TAt           = Temporal_Attention_layer(DEVICE, in_channels, num_of_vertices, num_of_timesteps)
         self.SAt           = Spatial_Attention_layer(DEVICE, in_channels, num_of_vertices, num_of_timesteps)
         self.cheb_conv_SAt = cheb_conv_withSAt(K, cheb_polynomials, in_channels, nb_chev_filter)
-        self.time_conv     = nn.Conv2d(nb_chev_filter, nb_time_filter, kernel_size=(1, 3), stride=(1, time_strides), padding=(0, 1))
-        # self.time_conv2    = nn.Conv2d(nb_chev_filter, nb_time_filter, kernel_size=(1, 3), stride=(1, 1), padding=(0, 1), dilation=(1, 2))
-        self.residual_conv = nn.Conv2d(in_channels, nb_time_filter, kernel_size=(1, 1), stride=(1, time_strides))
-        self.ln            = nn.LayerNorm(nb_time_filter)  #需要将channel放到最后一个维度上
-        # self.bn = nn.BatchNorm2d(nb_time_filter)
+        # self.time_conv     = nn.Conv2d(nb_chev_filter, nb_time_filter, kernel_size=(1, 3), stride=(1, time_strides), padding=(0, 1))
+        # # self.time_conv2    = nn.Conv2d(nb_chev_filter, nb_time_filter, kernel_size=(1, 3), stride=(1, 1), padding=(0, 1), dilation=(1, 2))
+        # self.residual_conv = nn.Conv2d(in_channels, nb_time_filter, kernel_size=(1, 1), stride=(1, time_strides))
+        # self.ln            = nn.LayerNorm(nb_time_filter)  #需要将channel放到最后一个维度上
+        # # self.bn = nn.BatchNorm2d(nb_time_filter)
+        self.tcn = TCN2d(in_channels, output_time_steps, num_channels=tcn_channels, kernel_size=kernel_size, dropout=0.2, device=DEVICE)
 
     def forward(self, x):
         '''
@@ -223,93 +324,90 @@ class ASTGCN_block(nn.Module):
         # spatial_gcn = self.cheb_conv(x)
 
         # convolution along the time axis
-        time_conv_output = self.time_conv(spatial_gcn.permute(0, 2, 1, 3))  # (b,N,F,T)->(b,F,N,T) 用(1,3)的卷积核去做->(b,F,N,T)
+        # time_conv_output = self.time_conv(spatial_gcn.permute(0, 2, 1, 3))  # (b,N,F,T)->(b,F,N,T)
 
-        # residual shortcut
-        x_residual = self.residual_conv(x.permute(0, 2, 1, 3))  # (b,N,F,T)->(b,F,N,T) 用(1,1)的卷积核去做->(b,F,N,T)
+        # # residual shortcut
+        # x_residual = self.residual_conv(x.permute(0, 2, 1, 3))  # (b,N,F,T)->(b,F,N,T) 用(1,1)的卷积核去做->(b,F,N,T)
 
-        # breakpoint()
+        # # breakpoint()
 
-        x_residual = self.ln(F.relu(x_residual + time_conv_output).permute(0, 3, 2, 1)).permute(0, 2, 3, 1) 
-        # (b,F,N,T)->(b,T,N,F) -ln-> (b,T,N,F)->(b,N,F,T)
+        # x_residual = self.ln(F.relu(x_residual + time_conv_output).permute(0, 3, 2, 1)).permute(0, 2, 3, 1) 
+        # # (b,F,N,T)->(b,T,N,F) -ln-> (b,T,N,F)->(b,N,F,T)
 
-        return x_residual
+        # tcn input: [batch_size, num_nodes, num_features, num_time_steps]
+        out = self.tcn(spatial_gcn)  # (b, N, F, T) -> (b, N, F, T)
+
+        return out
 
 
-class ASTGCN_submodule(nn.Module):
+class GTCN(nn.Module):
+    def __init__(self, 
+                 adj_matrix,
+                 DEVICE, 
+                 nb_block, 
+                 in_channels, 
+                 K, 
+                 nb_chev_filter, 
+                 kernel_size, 
+                 input_time_steps,
+                 output_time_steps, 
+                 cheb_polynomials, 
+                 tcn_channels, 
+                 num_of_vertices):
+        """
+        Initialize the GTCN model.
 
-    def __init__(self, DEVICE, nb_block, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, cheb_polynomials, num_for_predict, len_input, num_of_vertices):
-        '''
-        Initialize the ASTGCN_submodule class.
         Parameters:
-        - DEVICE: the device to run the model on
-        - nb_block: number of ASTGCN blocks
-        - in_channels: number of input channels
-        - K: order of the Chebyshev polynomials approximation
-        - nb_chev_filter: number of Chebyshev filters
-        - nb_time_filter: number of time filters
-        - time_strides: time strides
-        - cheb_polynomials: Chebyshev polynomials
-        - num_for_predict: number of steps to predict
-        - len_input: length of input, input time steps
-        - num_of_vertices: number of graph vertices
-        '''
+            adj_matrix (np.ndarray): The adjacency matrix of the graph.
+            DEVICE (str): The device to be used for computation.
+            nb_block (int): The number of blocks in the GTCN model.
+            in_channels (int): The number of input channels.
+            K (int): The number of Chebyshev polynomials to be used.
+            nb_chev_filter (int): The number of Chebyshev filters.
+            kernel_size (int): The size of the kernel.
+            input_time_steps (int): The number of input time steps.
+            output_time_steps (int): The number of output time steps.
+            cheb_polynomials (List[torch.Tensor]): The list of Chebyshev polynomials.
+            tcn_channels (List[int]): The list of channels in the TCN layers.
+            num_of_vertices (int): The number of vertices in the graph.
 
-        super(ASTGCN_submodule, self).__init__()
+        Returns:
+            None
+        """
 
-        self.BlockList = nn.ModuleList([ASTGCN_block(DEVICE, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, cheb_polynomials, num_of_vertices, len_input)])
+        super(GTCN, self).__init__()
 
-        self.BlockList.extend(
-            [ASTGCN_block(DEVICE, nb_time_filter, K, nb_chev_filter, nb_time_filter, 1, cheb_polynomials, num_of_vertices, len_input//time_strides)
-            for _ in range(nb_block-1)]
+        self.device = DEVICE
+        L_tilde = scaled_Laplacian(adj_matrix)
+        cheb_polynomials = [torch.from_numpy(i).type(torch.FloatTensor).to(DEVICE) for i in cheb_polynomial(L_tilde, K)]
+        self.model = nn.ModuleList(
+            [FASTGCN_block(DEVICE, in_channels, K, kernel_size, nb_chev_filter, output_time_steps, tcn_channels, cheb_polynomials, num_of_vertices, input_time_steps)
+            for _ in range(nb_block)]
             )
 
-        self.final_conv = nn.Conv2d(int(len_input/time_strides), num_for_predict, kernel_size=(1, nb_time_filter))
+        # self.final_conv = nn.Conv2d(int(len_input/time_strides), num_for_predict, kernel_size=(1, nb_time_filter))
+        self.init_weights()
 
-        self.DEVICE = DEVICE
-
-        self.to(DEVICE)
+    def init_weights(self):
+        for p in self.model.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+            else:
+                nn.init.uniform_(p)
 
     def forward(self, x):
         '''
         :param x: (B, N_nodes, F_in, T_in)
         :return: (B, N_nodes, T_out)
         '''
-        for block in self.BlockList:
+
+        x = x.to(self.device)
+        model = model.to(self.device)
+
+        for block in self.model:
             x = block(x)
 
-        output = self.final_conv(x.permute(0, 3, 1, 2))[:, :, :, -1].permute(0, 2, 1)
+        # output = self.final_conv(x.permute(0, 3, 1, 2))[:, :, :, -1].permute(0, 2, 1)
         # (b,N,F,T)->(b,T,N,F)-conv<1,F>->(b,c_out*T,N,1)->(b,c_out*T,N)->(b,N,T)
 
-        return output
-
-
-def make_my_model(DEVICE, nb_block, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, adj_mx, num_for_predict, len_input, num_of_vertices):
-    '''
-    Create a model for ASTGCN.
-    Args:
-        DEVICE (torch.device): The device to run the model on.
-        nb_block (int): The number of blocks in the model.
-        in_channels (int): The number of input channels.
-        K (int): The order of the Chebyshev polynomials.
-        nb_chev_filter (int): The number of Chebyshev filters.
-        nb_time_filter (int): The number of time filters.
-        time_strides (list): The time strides for each block.
-        adj_mx (numpy.ndarray): The adjacency matrix.
-        num_for_predict (int): The number of time steps to predict.
-        len_input (int): The length of the input time series.
-        num_of_vertices (int): The number of vertices in the graph.
-    Returns:
-        model (ASTGCN_submodule): The created ASTGCN model.
-    '''
-    L_tilde = scaled_Laplacian(adj_mx)
-    cheb_polynomials = [torch.from_numpy(i).type(torch.FloatTensor).to(DEVICE) for i in cheb_polynomial(L_tilde, K)]
-    model = ASTGCN_submodule(DEVICE, nb_block, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, cheb_polynomials, num_for_predict, len_input, num_of_vertices)
-
-    for p in model.parameters():
-        if p.dim() > 1:
-            nn.init.xavier_uniform_(p)
-        else:
-            nn.init.uniform_(p)
-
-    return model
+        return x

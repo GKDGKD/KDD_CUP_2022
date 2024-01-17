@@ -12,6 +12,7 @@ from utils import get_gnn_data, generate_dataset, get_adjency_matrix, get_normal
 from models.crossformer import Crossformer
 from models.ASTGCN import make_model
 from models.myASTGCN import make_my_model
+from Losses import PinballLoss
 
 class EarlyStopping:
     def __init__(self, patience=5, delta=0, path='best_model.pt'):
@@ -151,6 +152,23 @@ def train_and_val(turbine_id, model, criterion, config, model_save_dir, logger=N
             
     return train_loss_history, val_loss_history
 
+def get_model_param_size(net):
+    """
+    Calculate the total size of the model parameters in megabytes.
+
+    Parameters:
+    - net: The neural network model.
+
+    Returns:
+    - The total size of the model parameters in megabytes.
+    """
+
+    total_param = 0
+    for param_tensor in net.state_dict():
+        total_param += np.prod(net.state_dict()[param_tensor].size())
+    
+    return total_param / 1024**2
+
 
 def train(model_map, device, criterion, config, model_save_dir, logger):
     """
@@ -190,8 +208,14 @@ def train(model_map, device, criterion, config, model_save_dir, logger):
             # 每个风机一个模型
             model = model_map[config['model_name'].lower()]
             save_dir = os.path.join(model_save_dir, f'Turbine_{turbine_id}')
+
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
+
+        # 计算参数量. TCN: 0.004276275634765625 MB.
+        # total_param = sum(p.numel() for p in model.parameters() if p.requires_grad) / 1024**2
+        total_param = get_model_param_size(model)
+        logger.info(f"{config['model_name']}\'s total params: {total_param} MB.")
 
         model.to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=config['lr_rate'])
@@ -274,6 +298,10 @@ def train_stgcn(model, device, criterion, config, model_save_dir, logger=None):
     # 训练STGCN模型
     logger.info('Reading data ...')
     train_original_data, val_original_data, _, A_wave, _, _ = get_gnn_data(config, logger)
+
+    # 计算模型参数量。STGCN：0.15296363830566406 MB.
+    total_param = get_model_param_size(model)
+    logger.info(f"{config['model_name']}\'s total params: {total_param} MB.")
     logger.info('Starts training STGCN...')
 
     train_loss_history, val_loss_history    = [], []
@@ -363,6 +391,12 @@ def train_mtgnn(model, device, criterion, config, model_save_dir, logger=None):
     # 训练STGCN模型
     logger.info('Reading data ...')
     train_original_data, val_original_data, _, A_wave, _, _ = get_gnn_data(config, logger)
+
+    # 计算模型参数量。
+    # ASTGCN: 0.22650527954101562 MB
+    # FASTGCN: 0.12565994262695312 MB.
+    total_param = get_model_param_size(model)
+    logger.info(f"{config['model_name']}\'s total params: {total_param} MB.")
     logger.info(f'Starts training {config["model_name"]}...')
 
     train_loss_history, val_loss_history    = [], []
@@ -541,12 +575,16 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
     }
 
     logger.info(f'Use model: {config["model_name"]}')
-    if config['loss_fn'].lower() == 'mse':
-        criterion = nn.MSELoss(reduction='mean')
-    elif config['loss_fn'].lower() == 'huber':
-        criterion = nn.HuberLoss(reduction='mean')
-    elif config['loss_fn'].lower() == 'mae':
-        criterion = nn.L1Loss(reduction='mean')
+
+    # 损失函数
+    loss_map = {
+        'mse': nn.MSELoss(reduction='mean'),
+        'mae': nn.L1Loss(reduction='mean'),
+        'huber': nn.HuberLoss(reduction='mean'),
+        'quantile': PinballLoss(quantiles=[0.5], device=device)
+    }
+    if config['loss_fn'].lower() in loss_map.keys():
+        criterion = loss_map[config['loss_fn'].lower()]
     else:
         raise ValueError(f'Unsupported loss function: {config["loss_fn"]}')
     logger.info(f'Loss function: {config["loss_fn"]}')

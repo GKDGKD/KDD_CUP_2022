@@ -84,14 +84,21 @@ for date_folder in tqdm(os.listdir(result_folder)):
         if os.path.exists(result_csv_path):
             result_df = pd.read_csv(result_csv_path)
             # 获取最后一列最后一行的 score
-            score = result_df.iloc[-1, -1]
+            score = result_df['Score'].iloc[-1]
+            # breakpoint()
+            mae   = result_df['MAE'].iloc[-1]
+            rmse  = result_df['RMSE'].iloc[-1]
         else:
             score = 'N/A'  # 如果 result.csv 文件不存在，默认为 'N/A'
+            mae   = 'N/A'
+            rmse  = 'N/A'
         
         # 将结果添加到 summary_df 中
         summary_dict = pd.DataFrame({
             'Date'     : date,
             '模型'     : model_name,
+            'MAE'      : mae,
+            'RMSE'     : rmse,
             'Score'    : score,
             'cost time': seconds,
             **parameters_dict

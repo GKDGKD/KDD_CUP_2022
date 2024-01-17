@@ -3,7 +3,7 @@ import torch.nn as nn
 import math
 import torch.nn.functional as F
 from torch.nn.utils import weight_norm 
-from layer import *
+from models.layer import *
 
 class RNN(nn.Module):
     def __init__(self, input_size, 
@@ -194,14 +194,13 @@ class TemporalBlock(nn.Module):
 class TemporalConvNet(nn.Module):
     def __init__(self, num_inputs, num_channels, kernel_size=2, dropout=0.2):
         """
-        TCN，目前paper给出的TCN结构很好的支持每个时刻为一个数的情况，即sequence结构，
-        对于每个时刻为一个向量这种一维结构，勉强可以把向量拆成若干该时刻的输入通道，
-        对于每个时刻为一个矩阵或更高维图像的情况，就不太好办。
-
-        :param num_inputs: int， 输入维度，即特征数
-        :param num_channels: list，每层的hidden_channel数，例如[25,25,25,25]表示有4个隐层，每层hidden_channel数为25
-        :param kernel_size: int, 卷积核尺寸
-        :param dropout: float, drop_out比率
+        TCN backbone.
+        
+        Args:
+            num_inputs: int， 输入维度，即特征数
+            num_channels: list，每层的hidden_channel数，例如[25,25,25,25]表示有4个隐层，每层hidden_channel数为25
+            kernel_size: int, 卷积核尺寸
+            dropout: float, drop_out比率
         """
         super(TemporalConvNet, self).__init__()
         layers = []

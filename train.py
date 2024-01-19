@@ -12,6 +12,7 @@ from utils import get_gnn_data, generate_dataset, get_adjency_matrix, get_normal
 from models.crossformer import Crossformer
 from models.ASTGCN import make_model
 from models.myASTGCN import make_my_model
+from models.GTCN import GTCN
 from Losses import PinballLoss
 
 class EarlyStopping:
@@ -388,7 +389,7 @@ def train_stgcn(model, device, criterion, config, model_save_dir, logger=None):
 
 
 def train_mtgnn(model, device, criterion, config, model_save_dir, logger=None):
-    # 训练STGCN模型
+    # 训练STGCN类型的模型
     logger.info('Reading data ...')
     train_original_data, val_original_data, _, A_wave, _, _ = get_gnn_data(config, logger)
 
@@ -417,10 +418,11 @@ def train_mtgnn(model, device, criterion, config, model_save_dir, logger=None):
                                path=os.path.join(model_save_dir, f'model_{config["model_name"]}.pt'))
     
     x_type_map = {
-        'stgcn': 1,
-        'mtgnn': 2,
-        'astgcn': 3,
-        'fastgcn': 3
+        'stgcn'  : 1,
+        'mtgnn'  : 2,
+        'astgcn' : 3,
+        'fastgcn': 3,
+        'gtcn'   : 3
     }
     x_type = x_type_map[config['model_name'].lower()]
     
@@ -532,7 +534,7 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
                     device      = device),
         "tcn": TCN(input_size=config['input_size'],
                     output_size  = config['output_len'],
-                    num_channels = [config['hidden_size']]*config['num_layers'],
+                    num_channels = config['TCN_channels'],
                     kernel_size  = config['kernel_size'],
                     dropout      = config['dropout'],
                     device       = device),
@@ -571,17 +573,30 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
                              adj_mx=A_wave,
                              num_for_predict=config['output_len'],
                              len_input=config['input_len'],
-                             num_of_vertices=config['capacity'])
+                             num_of_vertices=config['capacity']),
+        'gtcn': GTCN(A_wave,
+                     device,
+                     nb_block=config['nb_block'],
+                     in_channels=config['input_size'],
+                     K=config['K'],
+                     nb_chev_filter=config['nb_chev_filter'],
+                     nb_time_filter=config['nb_time_filter'],
+                     kernel_size=config['kernel_size'],
+                     input_time_steps=config['input_len'],
+                     output_time_steps=config['output_len'],
+                     tcn_channels=config['TCN_channels'],
+                     num_of_vertices=config['capacity']
+                    ) 
     }
 
     logger.info(f'Use model: {config["model_name"]}')
 
     # 损失函数
     loss_map = {
-        'mse': nn.MSELoss(reduction='mean'),
-        'mae': nn.L1Loss(reduction='mean'),
-        'huber': nn.HuberLoss(reduction='mean'),
-        'quantile': PinballLoss(quantiles=[0.5], device=device)
+        'mse'     : nn.MSELoss(reduction='mean'),
+        'mae'     : nn.L1Loss(reduction='mean'),
+        'huber'   : nn.HuberLoss(reduction='mean'),
+        'quantile': PinballLoss(quantiles=[0.5], device=device)  # 效果更好，但是计算太慢了
     }
     if config['loss_fn'].lower() in loss_map.keys():
         criterion = loss_map[config['loss_fn'].lower()]
@@ -589,6 +604,8 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
         raise ValueError(f'Unsupported loss function: {config["loss_fn"]}')
     logger.info(f'Loss function: {config["loss_fn"]}')
 
+
+    # 模型
     if config['model_name'].lower() == 'stgcn':
         model = model_map[config['model_name'].lower()]
         logger.info('-' * 30 + f' Training {config["model_name"]} ' + '-' * 30)
@@ -597,7 +614,7 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
             os.makedirs(save_dir)
         train_stgcn(model, device, criterion, config, save_dir, logger)
 
-    elif config['model_name'].lower() in {'mtgnn', 'astgcn', 'fastgcn'}:
+    elif config['model_name'].lower() in {'mtgnn', 'astgcn', 'fastgcn', 'gtcn'}:
         model = model_map[config['model_name'].lower()]
         logger.info('-' * 30 + f' Training {config["model_name"]} ' + '-' * 30)
         save_dir = os.path.join(model_save_dir, config["model_name"])
@@ -611,4 +628,5 @@ def traverse_wind_farm(config, model_save_dir, logger=None):
 
     else:
         logger.error(f'The model {config["model_name"]} is not implemented.')
+        raise ValueError(f'The model {config["model_name"]} is not implemented.')
     

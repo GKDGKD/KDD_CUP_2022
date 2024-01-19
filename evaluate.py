@@ -375,10 +375,11 @@ def evaluate_mtgnn(config, model_dir, logger):
     model.eval()
 
     x_type_map = {
-        'stgcn': 1,
-        'mtgnn': 2,
-        'astgcn': 3,
-        'fastgcn': 3
+        'stgcn'  : 1,
+        'mtgnn'  : 2,
+        'astgcn' : 3,
+        'fastgcn': 3,
+        'gtcn'   : 3
     }
     x_type = x_type_map[config['model_name'].lower()]
 
@@ -469,10 +470,10 @@ if __name__ == "__main__":
     logger       = Logger_.logger
     logger.info(f"LOCAL TIME: {current_time}")
 
-    result_dir = './result/2024_01_07_23_35_44_FASTGCN'
+    result_dir = './result/2024_01_18_12_25_16_GTCN'
     # result_dir = './result/2024_01_07_11_58_54_ASTGCN'
     # logger.info(f'Result directory: {result_dir}')
-    # evaluate_mtgnn(config, result_dir, logger)
+    evaluate_mtgnn(config, result_dir, logger)
     # evaluate_stgcn(config, result_dir, logger)
     # evaluate_all(config, result_dir, logger)
-    evaluate_arima(config, save_dir, logger)
+    # evaluate_arima(config, save_dir, logger)

@@ -2,7 +2,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 from utils import scaled_Laplacian, cheb_polynomial
 from torch.nn.utils import weight_norm  
 
@@ -25,26 +24,13 @@ class Spatial_Attention_layer(nn.Module):
     '''
     compute spatial attention scores
     '''
-    def __init__(self, in_channels, num_of_vertices, num_of_timesteps):
-        """
-        Initializes an instance of the Spatial_Attention_layer class.
-
-        Args:
-            DEVICE (str): The device on which the tensors will be allocated.
-            in_channels (int): The number of input channels, i.e., the number of features in the input tensor.
-            num_of_vertices (int): The number of vertices in the input tensor.
-            num_of_timesteps (int): The number of timesteps in the input tensor.
-
-        Returns:
-            None
-        """
-
+    def __init__(self, DEVICE, in_channels, num_of_vertices, num_of_timesteps):
         super(Spatial_Attention_layer, self).__init__()
-        self.W1 = nn.Parameter(torch.FloatTensor(num_of_timesteps)) # (T,)
-        self.W2 = nn.Parameter(torch.FloatTensor(in_channels, num_of_timesteps))  # (F, T)
-        self.W3 = nn.Parameter(torch.FloatTensor(in_channels))  # (F,)
+        self.W1 = nn.Parameter(torch.FloatTensor(num_of_timesteps).to(DEVICE)) # (T,)
+        self.W2 = nn.Parameter(torch.FloatTensor(in_channels, num_of_timesteps).to(DEVICE))  # (F, T)
+        self.W3 = nn.Parameter(torch.FloatTensor(in_channels).to(DEVICE))  # (F,)
         # self.bs = nn.Parameter(torch.FloatTensor(1, num_of_vertices, num_of_vertices).to(DEVICE))
-        self.Vs = nn.Parameter(torch.FloatTensor(num_of_vertices, num_of_vertices))  # (N, N)
+        # self.Vs = nn.Parameter(torch.FloatTensor(num_of_vertices, num_of_vertices).to(DEVICE))
 
     def forward(self, x):
         '''
@@ -60,14 +46,10 @@ class Spatial_Attention_layer(nn.Module):
 
         # S = torch.matmul(self.Vs, torch.sigmoid(product + self.bs))  # (N,N)(B, N, N)->(B,N,N)
 
-        # S_normalized = F.softmax(product, dim=1)
+        S_normalized = F.softmax(product, dim=1)
 
-        S = torch.matmul(product / np.sqrt(product.shape[-1]), self.Vs)  # (b, N, N)
+        return S_normalized
 
-        spatial_attention_score = F.softmax(S, dim=1)  # (b, N, N)
-
-        return spatial_attention_score
-                     
 
 class cheb_conv_withSAt(nn.Module):
     '''
@@ -123,26 +105,14 @@ class cheb_conv_withSAt(nn.Module):
 
 
 class Temporal_Attention_layer(nn.Module):
-    def __init__(self,  in_channels, num_of_vertices, num_of_timesteps):
-        """
-        Initializes the Temporal_Attention_layer class.
-
-        Parameters:
-            DEVICE (torch.device): The device on which the computations are performed.
-            in_channels (int): The number of input channels. number of features.
-            num_of_vertices (int): The number of vertices.
-            num_of_timesteps (int): The number of input timesteps.
-
-        Returns:
-            None
-        """
+    def __init__(self, DEVICE, in_channels, num_of_vertices, num_of_timesteps):
         super(Temporal_Attention_layer, self).__init__()
-        self.U1 = nn.Parameter(torch.FloatTensor(num_of_vertices))
-        self.U2 = nn.Parameter(torch.FloatTensor(in_channels, num_of_vertices))
-        self.U3 = nn.Parameter(torch.FloatTensor(in_channels))
+        self.U1 = nn.Parameter(torch.FloatTensor(num_of_vertices).to(DEVICE))
+        self.U2 = nn.Parameter(torch.FloatTensor(in_channels, num_of_vertices).to(DEVICE))
+        self.U3 = nn.Parameter(torch.FloatTensor(in_channels).to(DEVICE))
         # self.be = nn.Parameter(torch.FloatTensor(1, num_of_timesteps, num_of_timesteps).to(DEVICE))
-        self.Ve = nn.Parameter(torch.FloatTensor(num_of_timesteps, num_of_timesteps))
-                               
+        # self.Ve = nn.Parameter(torch.FloatTensor(num_of_timesteps, num_of_timesteps).to(DEVICE))
+
     def forward(self, x):
         '''
         :param x: (batch_size, N, F_in, T)
@@ -161,13 +131,10 @@ class Temporal_Attention_layer(nn.Module):
 
         # E = torch.matmul(self.Ve, torch.sigmoid(product + self.be))  # (B, T, T) # 原版
 
-        # E_normalized = F.softmax(product, dim=1)
+        E_normalized = F.softmax(product, dim=1)
 
-        S = torch.matmul(product / np.sqrt(product.shape[-1]), self.Ve)  # (b, T, T)
+        return E_normalized
 
-        time_attention_score = F.softmax(S, dim=1)  # (b, T, T)
-
-        return time_attention_score
 
 class cheb_conv(nn.Module):
     '''
@@ -224,49 +191,34 @@ class TemporalBlock2d(nn.Module):
     def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, dropout=0.2):
         super(TemporalBlock2d, self).__init__()
         padding  = (kernel_size - 1) * dilation
-
-        ## v1
-        # self.conv1 = weight_norm(nn.Conv2d(n_inputs, n_outputs, kernel_size=(1, kernel_size),
-        #                                    stride=stride, padding=(0, padding), dilation=dilation))
-        # self.chomp1   = Chomp2d(padding)
-        # self.relu1    = nn.ReLU()
-        # self.dropout1 = nn.Dropout(dropout)
-
-        # self.conv2 = weight_norm(nn.Conv2d(n_outputs, n_outputs, kernel_size=(1, kernel_size),
-        #                                    stride=stride, padding=(0, padding), dilation=dilation))
-        # self.chomp2   = Chomp2d(padding)
-        # self.relu2    = nn.ReLU()
-        # self.dropout2 = nn.Dropout(dropout)
-
-        # self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1,
-        #                          self.conv2, self.chomp2, self.relu2, self.dropout2)
-        # self.downsample = nn.Conv2d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
-        # self.relu = nn.ReLU()
-
-
-        ## v2
         self.conv1 = weight_norm(nn.Conv2d(n_inputs, n_outputs, kernel_size=(1, kernel_size),
                                            stride=stride, padding=(0, padding), dilation=dilation))
         self.chomp1   = Chomp2d(padding)
         self.relu1    = nn.ReLU()
-        # self.dropout1 = nn.Dropout(dropout)
-        self.net      = nn.Sequential(self.conv1, self.chomp1, self.relu1)
+        self.dropout1 = nn.Dropout(dropout)
 
+        self.conv2 = weight_norm(nn.Conv2d(n_outputs, n_outputs, kernel_size=(1, kernel_size),
+                                           stride=stride, padding=(0, padding), dilation=dilation))
+        self.chomp2   = Chomp2d(padding)
+        self.relu2    = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1,
+                                 self.conv2, self.chomp2, self.relu2, self.dropout2)
+        # self.downsample = nn.Conv2d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
+        # self.relu = nn.ReLU()
         self.init_weights()
 
     def init_weights(self):
         self.conv1.weight.data.normal_(0, 0.01)
-        # self.conv2.weight.data.normal_(0, 0.01)
-        # if self.downsample is not None:
-        #     self.downsample.weight.data.normal_(0, 0.01)
+        self.conv2.weight.data.normal_(0, 0.01)
+        if self.downsample is not None:
+            self.downsample.weight.data.normal_(0, 0.01)
         
     def forward(self, x):
         """
         Args:
-            x: [batch_size, num_features, num_nodes, num_time_steps], (b, F, N, T)
-
-        Returns:
-            out: [b, F, N, T]
+            x: [batch_size, num_nodes, num_features, num_time_steps]
         """
         # print(f'block: x.shape: {x.shape}')
         out = self.net(x)
@@ -283,20 +235,6 @@ class TCN2d(nn.Module):
                  kernel_size : int   = 3,
                  dropout     : float = 0.2,
                  device      : str   = 'cpu'):
-        """
-        Initializes a TCN2d object.
-
-        Parameters:
-            input_size (int)   : The size of the input,  number of the features.
-            output_size (int)  : The size of the output, can be output time steps or len(quantiles), etc.
-            num_channels (list): A list of integers representing the number of channels for each level of the TCN2d network.
-            kernel_size (int)  : The size of the kernel.
-            dropout (float)    : The dropout rate.
-            device (str)       : The device to use for computation.
-
-        Returns:
-            None
-        """
         super(TCN2d, self).__init__()
         self.device = device
 
@@ -339,6 +277,7 @@ class GTCN_block(nn.Module):
                  kernel_size,
                  nb_chev_filter, 
                  nb_time_filter,
+                 output_time_steps,
                  tcn_channels: list, 
                  cheb_polynomials, 
                  num_of_vertices, 
@@ -348,23 +287,23 @@ class GTCN_block(nn.Module):
         Initializes an instance of the GTCN_block class.
 
         Parameters:
-        - DEVICE          : The device on which the computation will be performed.
-        - in_channels     : The number of input channels. number of features.
-        - K               : The order of Chebyshev polynomials.
-        - nb_chev_filter  : The number of Chebyshev filters.
-        - nb_time_filter  : The number of time filters.
-        - time_strides    : The stride for the time convolution.
+        - DEVICE: The device on which the computation will be performed.
+        - in_channels: The number of input channels. number of features.
+        - K: The number of Chebyshev polynomials.
+        - nb_chev_filter: The number of Chebyshev filters.
+        - nb_time_filter: The number of time filters.
+        - time_strides: The stride for the time convolution.
         - cheb_polynomials: The Chebyshev polynomials.
-        - num_of_vertices : The number of vertices.
-        - num_of_timesteps: The number of input timesteps.
+        - num_of_vertices: The number of vertices.
+        - num_of_timesteps: The number of timesteps.
 
         Returns:
         - None
         """
 
         super(GTCN_block, self).__init__()
-        self.TAt           = Temporal_Attention_layer(in_channels, num_of_vertices, num_of_timesteps)
-        self.SAt           = Spatial_Attention_layer(in_channels, num_of_vertices, num_of_timesteps)
+        self.TAt           = Temporal_Attention_layer(DEVICE, in_channels, num_of_vertices, num_of_timesteps)
+        self.SAt           = Spatial_Attention_layer(DEVICE, in_channels, num_of_vertices, num_of_timesteps)
         self.cheb_conv_SAt = cheb_conv_withSAt(K, cheb_polynomials, in_channels, nb_chev_filter)
         # self.time_conv     = nn.Conv2d(nb_chev_filter, nb_time_filter, kernel_size=(1, 3), stride=(1, time_strides), padding=(0, 1))
         # # self.time_conv2  = nn.Conv2d(nb_chev_filter, nb_time_filter, kernel_size=(1, 3), stride=(1, 1), padding=(0, 1), dilation=(1, 2))
@@ -454,12 +393,12 @@ class GTCN(nn.Module):
         cheb_polynomials = [torch.from_numpy(i).type(torch.FloatTensor).to(DEVICE) for i in cheb_polynomial(L_tilde, K)]
         self.model = nn.ModuleList(
             [GTCN_block(DEVICE, in_channels, K, kernel_size, nb_chev_filter, nb_time_filter, \
-                         tcn_channels, cheb_polynomials, num_of_vertices, input_time_steps)]
+                        output_time_steps, tcn_channels, cheb_polynomials, num_of_vertices, input_time_steps)]
             )
 
         self.model.extend(
             [GTCN_block(DEVICE, nb_time_filter, K, kernel_size, nb_chev_filter, nb_time_filter, \
-                         tcn_channels, cheb_polynomials, num_of_vertices, input_time_steps)
+                        output_time_steps, tcn_channels, cheb_polynomials, num_of_vertices, input_time_steps)
             for _ in range(nb_block - 1)]
         )
 

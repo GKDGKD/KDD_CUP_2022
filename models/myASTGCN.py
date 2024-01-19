@@ -186,7 +186,7 @@ class ASTGCN_block(nn.Module):
         - time_strides: The stride for the time convolution.
         - cheb_polynomials: The Chebyshev polynomials.
         - num_of_vertices: The number of vertices.
-        - num_of_timesteps: The number of timesteps.
+        - num_of_timesteps: The number of input timesteps.
 
         Returns:
         - None
@@ -212,7 +212,8 @@ class ASTGCN_block(nn.Module):
         # TAt
         temporal_At = self.TAt(x)  # (b, T, T)
 
-        x_TAt = torch.matmul(x.reshape(batch_size, -1, num_of_timesteps), temporal_At).reshape(batch_size, num_of_vertices, num_of_features, num_of_timesteps)
+        x_TAt = torch.matmul(x.reshape(batch_size, -1, num_of_timesteps), temporal_At).reshape(batch_size, num_of_vertices, \
+                                                                                               num_of_features, num_of_timesteps)
         # (b N, F, T)
 
         # SAt
@@ -233,12 +234,13 @@ class ASTGCN_block(nn.Module):
         x_residual = self.ln(F.relu(x_residual + time_conv_output).permute(0, 3, 2, 1)).permute(0, 2, 3, 1) 
         # (b,F,N,T)->(b,T,N,F) -ln-> (b,T,N,F)->(b,N,F,T)
 
-        return x_residual
+        return x_residual  # (b,N,F,T)
 
 
 class ASTGCN_submodule(nn.Module):
 
-    def __init__(self, DEVICE, nb_block, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, cheb_polynomials, num_for_predict, len_input, num_of_vertices):
+    def __init__(self, DEVICE, nb_block, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, cheb_polynomials, \
+                 num_for_predict, len_input, num_of_vertices):
         '''
         Initialize the ASTGCN_submodule class.
         Parameters:
@@ -257,10 +259,12 @@ class ASTGCN_submodule(nn.Module):
 
         super(ASTGCN_submodule, self).__init__()
 
-        self.BlockList = nn.ModuleList([ASTGCN_block(DEVICE, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, cheb_polynomials, num_of_vertices, len_input)])
+        self.BlockList = nn.ModuleList([ASTGCN_block(DEVICE, in_channels, K, nb_chev_filter, nb_time_filter, time_strides, \
+                                                     cheb_polynomials, num_of_vertices, len_input)])
 
         self.BlockList.extend(
-            [ASTGCN_block(DEVICE, nb_time_filter, K, nb_chev_filter, nb_time_filter, 1, cheb_polynomials, num_of_vertices, len_input//time_strides)
+            [ASTGCN_block(DEVICE, nb_time_filter, K, nb_chev_filter, nb_time_filter, 1, \
+                          cheb_polynomials, num_of_vertices, len_input//time_strides)
             for _ in range(nb_block-1)]
             )
 

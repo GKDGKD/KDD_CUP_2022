@@ -226,31 +226,31 @@ class TemporalBlock2d(nn.Module):
         padding  = (kernel_size - 1) * dilation
 
         ## v1
-        # self.conv1 = weight_norm(nn.Conv2d(n_inputs, n_outputs, kernel_size=(1, kernel_size),
-        #                                    stride=stride, padding=(0, padding), dilation=dilation))
-        # self.chomp1   = Chomp2d(padding)
-        # self.relu1    = nn.ReLU()
-        # self.dropout1 = nn.Dropout(dropout)
+        self.conv1 = weight_norm(nn.Conv2d(n_inputs, n_outputs, kernel_size=(1, kernel_size),
+                                           stride=stride, padding=(0, padding), dilation=dilation))
+        self.chomp1   = Chomp2d(padding)
+        self.relu1    = nn.ReLU()
+        self.dropout1 = nn.Dropout(dropout)
 
-        # self.conv2 = weight_norm(nn.Conv2d(n_outputs, n_outputs, kernel_size=(1, kernel_size),
-        #                                    stride=stride, padding=(0, padding), dilation=dilation))
-        # self.chomp2   = Chomp2d(padding)
-        # self.relu2    = nn.ReLU()
-        # self.dropout2 = nn.Dropout(dropout)
+        self.conv2 = weight_norm(nn.Conv2d(n_outputs, n_outputs, kernel_size=(1, kernel_size),
+                                           stride=stride, padding=(0, padding), dilation=dilation))
+        self.chomp2   = Chomp2d(padding)
+        self.relu2    = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout)
 
-        # self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1,
-        #                          self.conv2, self.chomp2, self.relu2, self.dropout2)
+        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1,
+                                 self.conv2, self.chomp2, self.relu2, self.dropout2)
         # self.downsample = nn.Conv2d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
         # self.relu = nn.ReLU()
 
 
         ## v2
-        self.conv1 = weight_norm(nn.Conv2d(n_inputs, n_outputs, kernel_size=(1, kernel_size),
-                                           stride=stride, padding=(0, padding), dilation=dilation))
-        self.chomp1   = Chomp2d(padding)
-        self.relu1    = nn.ReLU()
-        # self.dropout1 = nn.Dropout(dropout)
-        self.net      = nn.Sequential(self.conv1, self.chomp1, self.relu1)
+        # self.conv1 = weight_norm(nn.Conv2d(n_inputs, n_outputs, kernel_size=(1, kernel_size),
+        #                                    stride=stride, padding=(0, padding), dilation=dilation))
+        # self.chomp1   = Chomp2d(padding)
+        # self.relu1    = nn.ReLU()
+        # # self.dropout1 = nn.Dropout(dropout)
+        # self.net      = nn.Sequential(self.conv1, self.chomp1, self.relu1)
 
         self.init_weights()
 

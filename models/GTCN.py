@@ -149,7 +149,6 @@ class Temporal_Attention_layer(nn.Module):
         :return: (B, T, T)
         '''
 
-
         lhs = torch.matmul(torch.matmul(x.permute(0, 3, 2, 1), self.U1), self.U2)
         # x:(B, N, F_in, T) -> (B, T, F_in, N)
         # (B, T, F_in, N)(N) -> (B,T,F_in)

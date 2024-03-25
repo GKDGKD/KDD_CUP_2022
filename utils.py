@@ -48,10 +48,10 @@ def get_normalized_adj(A):
     
     return A_wave
 
-def group_data(data, col_start, group_column='TurbID'):
+def group_data(data, col_use, group_column='TurbID'):
     # 按TurbID分组
     group_ids = sorted(data[group_column].unique())
-    col_use = data.columns[col_start:]
+    # col_use = data.columns[col_start:]
     res = []
     for group in group_ids:
         tmp = data[data[group_column] == group][col_use].values
@@ -139,9 +139,21 @@ def get_gnn_data(config, logger):
     """
     
     data = pd.read_csv(os.path.join(config['data_path'], config['filename']))
-    data.fillna(method='bfill', inplace=True)
-    data['Patv'] = data[config['target']].apply(lambda x: max(0, x))
     logger.info(f'Raw data.shape: {data.shape}')
+    
+    data['Patv'] = data['Patv'].apply(lambda x: max(0, x))
+    data['Prtv'] = data['Prtv'].apply(lambda x: max(0, x))
+    data['Pab1'] = data['Pab1'].clip(upper=89)
+    data['Pab2'] = data['Pab2'].clip(upper=89)
+    data['Pab3'] = data['Pab3'].clip(upper=89)
+    data['Ndir'] = data['Ndir'].clip(lower=-720, upper=720)
+    data['Wdir'] = data['Wdir'].clip(lower=-180, upper=180)
+    data.interpolate(method='linear', inplace=True)
+    data.fillna(method='bfill', inplace=True)
+    cols_use = ['Wspd', 'Wdir', 'Etmp', 'Itmp', 'Ndir',
+        'Pab1', 'Pab2', 'Pab3', 'Prtv', 'Patv']
+    # data = data[cols_use]
+    logger.info(f'After preprocessing, data.shape: {data.shape}')
 
     # # 删除异常值， 但是删了就组不成
     # outliers1 = (data['Ndir'] > 720) | (data['Ndir'] < -720)
@@ -150,7 +162,7 @@ def get_gnn_data(config, logger):
     # logger.info(f'After removing outliers, data.shape: {data.shape}')
 
     # 按TurbID分组
-    data = group_data(data, config['start_col']) # [num_nodes, seq_len, num_features]
+    data = group_data(data, cols_use) # [num_nodes, seq_len, num_features]
     data = data.transpose((0, 2, 1)) # [num_nodes, num_features, seq_len]
     
     # 标准化

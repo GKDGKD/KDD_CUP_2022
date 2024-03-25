@@ -470,7 +470,7 @@ if __name__ == "__main__":
     logger       = Logger_.logger
     logger.info(f"LOCAL TIME: {current_time}")
 
-    result_dir = './result/2024_01_18_12_25_16_GTCN'
+    result_dir = './result/2024_01_20_10_31_18_GTCN'
     # result_dir = './result/2024_01_07_11_58_54_ASTGCN'
     # logger.info(f'Result directory: {result_dir}')
     evaluate_mtgnn(config, result_dir, logger)

@@ -1,0 +1,90 @@
+Collecting causal-conv1d
+  Downloading causal_conv1d-1.1.1.tar.gz (6.6 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: torch in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from causal-conv1d) (2.1.1+cu121)
+Requirement already satisfied: packaging in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from causal-conv1d) (23.1)
+Collecting buildtools (from causal-conv1d)
+  Downloading buildtools-1.0.6.tar.gz (446 kB)
+     -------------------------------------- 446.5/446.5 kB 1.6 MB/s eta 0:00:00
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Collecting ninja (from causal-conv1d)
+  Downloading ninja-1.11.1.1-py2.py3-none-win_amd64.whl.metadata (5.4 kB)
+Collecting sqlalchemy (from buildtools->causal-conv1d)
+  Downloading SQLAlchemy-2.0.25-cp39-cp39-win_amd64.whl.metadata (9.8 kB)
+Collecting argparse (from buildtools->causal-conv1d)
+  Downloading argparse-1.4.0-py2.py3-none-any.whl (23 kB)
+Collecting twisted (from buildtools->causal-conv1d)
+  Downloading twisted-23.10.0-py3-none-any.whl.metadata (9.5 kB)
+Requirement already satisfied: simplejson in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from buildtools->causal-conv1d) (3.19.2)
+Collecting furl (from buildtools->causal-conv1d)
+  Downloading furl-2.1.3-py2.py3-none-any.whl (20 kB)
+Requirement already satisfied: requests in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from buildtools->causal-conv1d) (2.31.0)
+Collecting docopt (from buildtools->causal-conv1d)
+  Downloading docopt-0.6.2.tar.gz (25 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: python-dateutil in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from buildtools->causal-conv1d) (2.8.2)
+Requirement already satisfied: jinja2 in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from buildtools->causal-conv1d) (3.1.2)
+Collecting redo (from buildtools->causal-conv1d)
+  Downloading redo-2.0.4-py2.py3-none-any.whl (12 kB)
+Requirement already satisfied: filelock in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from torch->causal-conv1d) (3.9.0)
+Requirement already satisfied: typing-extensions in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from torch->causal-conv1d) (4.9.0)
+Requirement already satisfied: sympy in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from torch->causal-conv1d) (1.12)
+Requirement already satisfied: networkx in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from torch->causal-conv1d) (3.0)
+Requirement already satisfied: fsspec in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from torch->causal-conv1d) (2023.12.1)
+Requirement already satisfied: six>=1.8.0 in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from furl->buildtools->causal-conv1d) (1.16.0)
+Collecting orderedmultidict>=1.0.1 (from furl->buildtools->causal-conv1d)
+  Downloading orderedmultidict-1.0.1-py2.py3-none-any.whl (11 kB)
+Requirement already satisfied: MarkupSafe>=2.0 in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from jinja2->buildtools->causal-conv1d) (2.1.2)
+Requirement already satisfied: charset-normalizer<4,>=2 in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from requests->buildtools->causal-conv1d) (2.1.1)
+Requirement already satisfied: idna<4,>=2.5 in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from requests->buildtools->causal-conv1d) (3.4)
+Requirement already satisfied: urllib3<3,>=1.21.1 in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from requests->buildtools->causal-conv1d) (1.26.13)
+Requirement already satisfied: certifi>=2017.4.17 in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from requests->buildtools->causal-conv1d) (2022.12.7)
+Collecting greenlet!=0.4.17 (from sqlalchemy->buildtools->causal-conv1d)
+  Downloading greenlet-3.0.3-cp39-cp39-win_amd64.whl.metadata (3.9 kB)
+Requirement already satisfied: mpmath>=0.19 in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from sympy->torch->causal-conv1d) (1.3.0)
+Requirement already satisfied: attrs>=21.3.0 in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from twisted->buildtools->causal-conv1d) (23.1.0)
+Collecting automat>=0.8.0 (from twisted->buildtools->causal-conv1d)
+  Downloading Automat-22.10.0-py2.py3-none-any.whl (26 kB)
+Collecting constantly>=15.1 (from twisted->buildtools->causal-conv1d)
+  Downloading constantly-23.10.4-py3-none-any.whl.metadata (1.8 kB)
+Collecting hyperlink>=17.1.1 (from twisted->buildtools->causal-conv1d)
+  Downloading hyperlink-21.0.0-py2.py3-none-any.whl (74 kB)
+     ---------------------------------------- 74.6/74.6 kB 4.0 MB/s eta 0:00:00
+Collecting incremental>=22.10.0 (from twisted->buildtools->causal-conv1d)
+  Downloading incremental-22.10.0-py2.py3-none-any.whl (16 kB)
+Collecting twisted-iocpsupport<2,>=1.0.2 (from twisted->buildtools->causal-conv1d)
+  Downloading twisted_iocpsupport-1.0.4-cp39-cp39-win_amd64.whl.metadata (2.2 kB)
+Collecting zope-interface>=5 (from twisted->buildtools->causal-conv1d)
+  Downloading zope.interface-6.1-cp39-cp39-win_amd64.whl.metadata (42 kB)
+     ---------------------------------------- 42.8/42.8 kB 2.0 MB/s eta 0:00:00
+Requirement already satisfied: setuptools in c:\users\lliih\anaconda3\envs\torch\lib\site-packages (from zope-interface>=5->twisted->buildtools->causal-conv1d) (68.0.0)
+Downloading ninja-1.11.1.1-py2.py3-none-win_amd64.whl (312 kB)
+   ---------------------------------------- 313.0/313.0 kB 4.8 MB/s eta 0:00:00
+Downloading SQLAlchemy-2.0.25-cp39-cp39-win_amd64.whl (2.1 MB)
+   ---------------------------------------- 2.1/2.1 MB 4.9 MB/s eta 0:00:00
+Downloading twisted-23.10.0-py3-none-any.whl (3.2 MB)
+   ---------------------------------------- 3.2/3.2 MB 4.0 MB/s eta 0:00:00
+Downloading constantly-23.10.4-py3-none-any.whl (13 kB)
+Downloading greenlet-3.0.3-cp39-cp39-win_amd64.whl (290 kB)
+   ---------------------------------------- 290.8/290.8 kB 2.0 MB/s eta 0:00:00
+Downloading twisted_iocpsupport-1.0.4-cp39-cp39-win_amd64.whl (47 kB)
+   ---------------------------------------- 47.4/47.4 kB ? eta 0:00:00
+Downloading zope.interface-6.1-cp39-cp39-win_amd64.whl (204 kB)
+   ---------------------------------------- 204.2/204.2 kB 6.3 MB/s eta 0:00:00
+Building wheels for collected packages: causal-conv1d, buildtools, docopt
+  Building wheel for causal-conv1d (setup.py): started
+  Building wheel for causal-conv1d (setup.py): finished with status 'error'
+  Running setup.py clean for causal-conv1d
+  Building wheel for buildtools (setup.py): started
+  Building wheel for buildtools (setup.py): finished with status 'done'
+  Created wheel for buildtools: filename=buildtools-1.0.6-py3-none-any.whl size=512387 sha256=062b002a738c9e893231fcfac0eac1a63ab55b4012ae908f8cb206d29f6dfed2
+  Stored in directory: c:\users\lliih\appdata\local\pip\cache\wheels\02\0c\ee\8d11cb01bb21019c414cff7e46093e4e1a370f3ddb83c649a0
+  Building wheel for docopt (setup.py): started
+  Building wheel for docopt (setup.py): finished with status 'done'
+  Created wheel for docopt: filename=docopt-0.6.2-py2.py3-none-any.whl size=13773 sha256=f12e852967489a031536cca3f8f3ee8362919929e412b4562a86fbee6b0a20cd
+  Stored in directory: c:\users\lliih\appdata\local\pip\cache\wheels\70\4a\46\1309fc853b8d395e60bafaf1b6df7845bdd82c95fd59dd8d2b
+Successfully built buildtools docopt
+Failed to build causal-conv1d
